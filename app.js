@@ -29,6 +29,7 @@ function initializeSupabase() {
 // State Management
 let todos = [];
 let editingTodoId = null;
+let calendarSyncInterval = null;
 
 // DOM Elements
 const todoList = document.getElementById('todoList');
@@ -43,6 +44,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTodos();
     setupEventListeners();
     renderTodos();
+    
+    // Load calendar settings and auto-sync if enabled
+    loadCalendarSettings();
+    if (getCalendarSettings().autoSyncEnabled) {
+        await syncCalendarFromUrl();
+        startAutoSync();
+    }
 });
 
 // Event Listeners Setup
@@ -66,6 +74,25 @@ function setupEventListeners() {
     // Close modal on outside click
     todoModal.addEventListener('click', (e) => {
         if (e.target === todoModal) closeTodoModal();
+    });
+    
+    // Calendar Import
+    document.getElementById('calendarImportBtn').addEventListener('click', () => {
+        document.getElementById('calendarFileInput').click();
+    });
+    
+    document.getElementById('calendarFileInput').addEventListener('change', handleCalendarImport);
+    
+    // Calendar Settings
+    document.getElementById('calendarSettingsBtn').addEventListener('click', openSettingsModal);
+    document.getElementById('closeSettingsModal').addEventListener('click', closeSettingsModal);
+    document.getElementById('cancelSettingsBtn').addEventListener('click', closeSettingsModal);
+    document.getElementById('testConnectionBtn').addEventListener('click', testCalendarConnection);
+    document.getElementById('settingsForm').addEventListener('submit', handleSettingsSubmit);
+    
+    // Close settings modal on outside click
+    document.getElementById('settingsModal').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('settingsModal')) closeSettingsModal();
     });
 }
 
@@ -261,6 +288,7 @@ function openTodoModal(todo = null) {
     document.getElementById('modalTitle').textContent = todo ? 'Aufgabe bearbeiten' : 'Neue Aufgabe';
     document.getElementById('todoText').value = todo ? todo.text : '';
     document.getElementById('plannedHours').value = todo ? (todo.planned_hours || '') : '';
+    document.getElementById('usedHours').value = todo ? (todo.used_hours || '') : '';
     
     // Set date and quick select buttons
     const today = new Date().toISOString().split('T')[0];
@@ -328,7 +356,7 @@ async function handleTodoSubmit(e) {
         time: '', // Keep for compatibility but not shown in UI
         category: 'home', // Keep for compatibility but not shown in UI
         planned_hours: parseFloat(document.getElementById('plannedHours').value) || 0,
-        used_hours: 0,
+        used_hours: parseFloat(document.getElementById('usedHours').value) || 0,
         completed: false
     };
     
@@ -340,7 +368,6 @@ async function handleTodoSubmit(e) {
             todoData.description = existingTodo.description || '';
             todoData.time = existingTodo.time || '';
             todoData.category = existingTodo.category || 'home';
-            todoData.used_hours = existingTodo.used_hours || 0;
         }
     }
     
@@ -525,6 +552,327 @@ function showLoading() {
 
 function hideLoading() {
     loadingOverlay.classList.remove('active');
+}
+
+// Calendar Import Functions
+async function handleCalendarImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    showLoading();
+    try {
+        const text = await file.text();
+        const events = parseICalFile(text);
+        const timeByDate = calculateTimeByDate(events);
+        
+        // Update todos with calendar time
+        // Distribute time across all todos for each date
+        let updatedCount = 0;
+        for (const [date, hours] of Object.entries(timeByDate)) {
+            const todosForDate = todos.filter(t => t.date === date);
+            if (todosForDate.length > 0) {
+                // Distribute time equally across all todos for this date
+                const hoursPerTodo = hours / todosForDate.length;
+                for (const todo of todosForDate) {
+                    todo.used_hours = parseFloat(todo.used_hours) || 0;
+                    // Add calendar time to existing time
+                    todo.used_hours = parseFloat((parseFloat(todo.used_hours) + hoursPerTodo).toFixed(2));
+                    await saveTodo(todo);
+                    updatedCount++;
+                }
+            }
+        }
+        
+        await loadTodos();
+        renderTodos();
+        
+        // Reset file input
+        event.target.value = '';
+        
+        if (updatedCount > 0) {
+            alert(`Kalender erfolgreich importiert! ${updatedCount} Aufgabe(n) aktualisiert.`);
+        } else {
+            alert('Kalender importiert, aber keine passenden Aufgaben für heute gefunden.');
+        }
+    } catch (error) {
+        console.error('Error importing calendar:', error);
+        alert('Fehler beim Importieren des Kalenders: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function parseICalFile(icalText) {
+    const events = [];
+    const lines = icalText.split(/\r?\n/);
+    let currentEvent = null;
+    let inEvent = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+        
+        // Handle line continuation (lines starting with space)
+        while (i + 1 < lines.length && lines[i + 1].startsWith(' ')) {
+            line += lines[i + 1].substring(1);
+            i++;
+        }
+        
+        if (line.startsWith('BEGIN:VEVENT')) {
+            inEvent = true;
+            currentEvent = {};
+        } else if (line.startsWith('END:VEVENT')) {
+            if (currentEvent && currentEvent.start && currentEvent.end) {
+                events.push(currentEvent);
+            }
+            inEvent = false;
+            currentEvent = null;
+        } else if (inEvent && currentEvent) {
+            if (line.startsWith('DTSTART')) {
+                const dateStr = extractDateFromLine(line);
+                if (dateStr) {
+                    currentEvent.start = parseICalDate(dateStr);
+                }
+            } else if (line.startsWith('DTEND')) {
+                const dateStr = extractDateFromLine(line);
+                if (dateStr) {
+                    currentEvent.end = parseICalDate(dateStr);
+                }
+            } else if (line.startsWith('SUMMARY:')) {
+                currentEvent.summary = line.substring(8).trim();
+            }
+        }
+    }
+    
+    return events;
+}
+
+function extractDateFromLine(line) {
+    // Handle both DTSTART:20240101T120000Z and DTSTART;VALUE=DATE:20240101
+    const colonIndex = line.indexOf(':');
+    if (colonIndex === -1) return null;
+    
+    let dateStr = line.substring(colonIndex + 1);
+    // Remove timezone info if present
+    dateStr = dateStr.replace(/Z$/, '').replace(/[+-]\d{4}$/, '');
+    
+    return dateStr;
+}
+
+function parseICalDate(dateStr) {
+    // Handle formats: 20240101T120000 or 20240101
+    let date;
+    if (dateStr.includes('T')) {
+        // Has time component
+        const [datePart, timePart] = dateStr.split('T');
+        const year = parseInt(datePart.substring(0, 4));
+        const month = parseInt(datePart.substring(4, 6)) - 1;
+        const day = parseInt(datePart.substring(6, 8));
+        const hour = parseInt(timePart.substring(0, 2)) || 0;
+        const minute = parseInt(timePart.substring(2, 4)) || 0;
+        const second = parseInt(timePart.substring(4, 6)) || 0;
+        date = new Date(Date.UTC(year, month, day, hour, minute, second));
+    } else {
+        // Date only
+        const year = parseInt(dateStr.substring(0, 4));
+        const month = parseInt(dateStr.substring(4, 6)) - 1;
+        const day = parseInt(dateStr.substring(6, 8));
+        date = new Date(Date.UTC(year, month, day));
+    }
+    
+    return date;
+}
+
+function calculateTimeByDate(events) {
+    const timeByDate = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    events.forEach(event => {
+        if (!event.start || !event.end) return;
+        
+        // Convert to local date
+        const eventDate = new Date(event.start);
+        eventDate.setHours(0, 0, 0, 0);
+        
+        // Calculate duration in hours
+        const durationMs = event.end.getTime() - event.start.getTime();
+        const durationHours = durationMs / (1000 * 60 * 60);
+        
+        // Format date as YYYY-MM-DD
+        const dateKey = eventDate.toISOString().split('T')[0];
+        
+        if (!timeByDate[dateKey]) {
+            timeByDate[dateKey] = 0;
+        }
+        
+        timeByDate[dateKey] += durationHours;
+    });
+    
+    return timeByDate;
+}
+
+// Calendar Settings Functions
+function getCalendarSettings() {
+    try {
+        const stored = localStorage.getItem('calendarSettings');
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (error) {
+        console.error('Error loading calendar settings:', error);
+    }
+    return {
+        url: '',
+        autoSyncEnabled: false
+    };
+}
+
+function saveCalendarSettings(settings) {
+    try {
+        localStorage.setItem('calendarSettings', JSON.stringify(settings));
+    } catch (error) {
+        console.error('Error saving calendar settings:', error);
+    }
+}
+
+function loadCalendarSettings() {
+    const settings = getCalendarSettings();
+    document.getElementById('calendarUrl').value = settings.url || '';
+    document.getElementById('autoSyncEnabled').checked = settings.autoSyncEnabled !== false;
+}
+
+function openSettingsModal() {
+    loadCalendarSettings();
+    document.getElementById('settingsModal').classList.add('active');
+}
+
+function closeSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('active');
+}
+
+async function handleSettingsSubmit(e) {
+    e.preventDefault();
+    
+    const settings = {
+        url: document.getElementById('calendarUrl').value.trim(),
+        autoSyncEnabled: document.getElementById('autoSyncEnabled').checked
+    };
+    
+    saveCalendarSettings(settings);
+    
+    // Stop existing sync if disabled
+    if (calendarSyncInterval) {
+        clearInterval(calendarSyncInterval);
+        calendarSyncInterval = null;
+    }
+    
+    // Start sync if enabled
+    if (settings.autoSyncEnabled && settings.url) {
+        await syncCalendarFromUrl();
+        startAutoSync();
+        alert('Einstellungen gespeichert. Kalender wird automatisch synchronisiert.');
+    } else {
+        alert('Einstellungen gespeichert.');
+    }
+    
+    closeSettingsModal();
+}
+
+async function testCalendarConnection() {
+    const url = document.getElementById('calendarUrl').value.trim();
+    if (!url) {
+        alert('Bitte geben Sie eine Kalender-URL ein.');
+        return;
+    }
+    
+    showLoading();
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const text = await response.text();
+        if (!text.includes('BEGIN:VCALENDAR') && !text.includes('BEGIN:VEVENT')) {
+            throw new Error('Die URL scheint keine gültige iCal-Datei zu sein.');
+        }
+        alert('Verbindung erfolgreich! Die Kalender-URL funktioniert.');
+    } catch (error) {
+        console.error('Connection test failed:', error);
+        alert('Verbindung fehlgeschlagen: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function syncCalendarFromUrl() {
+    const settings = getCalendarSettings();
+    if (!settings.url || !settings.autoSyncEnabled) {
+        return;
+    }
+    
+    try {
+        console.log('Syncing calendar from URL:', settings.url);
+        const response = await fetch(settings.url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const text = await response.text();
+        const events = parseICalFile(text);
+        const timeByDate = calculateTimeByDate(events);
+        
+        // Update todos with calendar time
+        // Store last sync time to avoid unnecessary updates
+        const lastSyncKey = 'lastCalendarSyncTime';
+        const lastSyncTime = localStorage.getItem(lastSyncKey);
+        const currentSyncTime = Date.now();
+        
+        let updatedCount = 0;
+        for (const [date, hours] of Object.entries(timeByDate)) {
+            const todosForDate = todos.filter(t => t.date === date);
+            if (todosForDate.length > 0) {
+                // Distribute time equally across all todos for this date
+                const hoursPerTodo = hours / todosForDate.length;
+                const calendarTime = parseFloat(hoursPerTodo.toFixed(2));
+                
+                for (const todo of todosForDate) {
+                    const currentUsedHours = parseFloat(todo.used_hours) || 0;
+                    // Update if calendar time is different (allows manual override if needed)
+                    // For auto-sync, use calendar as source of truth
+                    if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
+                        todo.used_hours = calendarTime;
+                        await saveTodo(todo);
+                        updatedCount++;
+                    }
+                }
+            }
+        }
+        
+        // Save sync time
+        localStorage.setItem(lastSyncKey, currentSyncTime.toString());
+        
+        if (updatedCount > 0) {
+            await loadTodos();
+            renderTodos();
+            console.log(`Calendar synced: ${updatedCount} todos updated`);
+        }
+    } catch (error) {
+        console.error('Error syncing calendar from URL:', error);
+        // Don't show alert for automatic syncs, only log
+    }
+}
+
+function startAutoSync() {
+    // Clear existing interval
+    if (calendarSyncInterval) {
+        clearInterval(calendarSyncInterval);
+    }
+    
+    // Sync every 5 minutes
+    calendarSyncInterval = setInterval(async () => {
+        await syncCalendarFromUrl();
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    console.log('Auto-sync started (every 5 minutes)');
 }
 
 // Make functions globally available for inline event handlers

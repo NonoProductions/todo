@@ -51,12 +51,60 @@ header {
     margin-bottom: 8px;
 }
 
+.header-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
 header h1 {
     font-size: 32px;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.5px;
     text-align: center;
+}
+
+.header-buttons {
+    position: absolute;
+    right: 0;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.calendar-import-btn,
+.calendar-settings-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-primary);
+    padding: 0;
+}
+
+.calendar-import-btn:hover,
+.calendar-settings-btn:hover {
+    background: var(--bg-card);
+    transform: scale(1.05);
+}
+
+.calendar-import-btn:active,
+.calendar-settings-btn:active {
+    transform: scale(0.95);
+}
+
+.calendar-import-btn svg,
+.calendar-settings-btn svg {
+    width: 20px;
+    height: 20px;
 }
 
 .todo-list {
@@ -366,6 +414,19 @@ form {
     font-family: inherit;
     background: var(--bg-secondary);
     color: var(--text-primary);
+}
+
+.form-group input[type="checkbox"] {
+    width: auto;
+    margin-right: 8px;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
 }
 
 .date-quick-select {
