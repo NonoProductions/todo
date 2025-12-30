@@ -101,10 +101,11 @@
             <form id="settingsForm">
                 <div class="form-group">
                     <label for="calendarUrl">Kalender-URL (iCal/CalDAV)</label>
-                    <input type="url" id="calendarUrl" placeholder="https://caldav.icloud.com/... oder https://...ics">
+                    <input type="url" id="calendarUrl" placeholder="webcal://... oder https://...">
                     <small class="form-hint">
                         Geben Sie die öffentliche iCal-URL Ihres Apple Kalenders ein.<br>
-                        Sie finden diese in den Kalender-Einstellungen unter "Teilen" → "Öffentliche URL".
+                        Sie finden diese in den Kalender-Einstellungen unter "Teilen" → "Öffentliche URL".<br>
+                        <strong>Hinweis:</strong> webcal:// URLs werden automatisch zu https:// konvertiert.
                     </small>
                 </div>
                 <div class="form-group">

@@ -563,22 +563,34 @@ async function handleCalendarImport(event) {
     try {
         const text = await file.text();
         const events = parseICalFile(text);
-        const timeByDate = calculateTimeByDate(events);
+        const timeByDateAndTitle = calculateTimeByDateAndTitle(events);
         
-        // Update todos with calendar time
-        // Distribute time across all todos for each date
+        // Update todos with calendar time based on title matching
         let updatedCount = 0;
-        for (const [date, hours] of Object.entries(timeByDate)) {
+        for (const [date, timeByTitle] of Object.entries(timeByDateAndTitle)) {
             const todosForDate = todos.filter(t => t.date === date);
-            if (todosForDate.length > 0) {
-                // Distribute time equally across all todos for this date
-                const hoursPerTodo = hours / todosForDate.length;
-                for (const todo of todosForDate) {
-                    todo.used_hours = parseFloat(todo.used_hours) || 0;
-                    // Add calendar time to existing time
-                    todo.used_hours = parseFloat((parseFloat(todo.used_hours) + hoursPerTodo).toFixed(2));
-                    await saveTodo(todo);
+            
+            for (const [calendarTitle, hours] of Object.entries(timeByTitle)) {
+                // Try to find matching todo by title
+                let matchedTodo = todosForDate.find(todo => 
+                    matchTitle(calendarTitle, todo.text)
+                );
+                
+                if (matchedTodo) {
+                    // Exact or fuzzy match found - assign time to this todo
+                    matchedTodo.used_hours = parseFloat(matchedTodo.used_hours) || 0;
+                    matchedTodo.used_hours = parseFloat((parseFloat(matchedTodo.used_hours) + hours).toFixed(2));
+                    await saveTodo(matchedTodo);
                     updatedCount++;
+                } else if (todosForDate.length > 0) {
+                    // No match found - distribute equally among all todos for this date
+                    const hoursPerTodo = hours / todosForDate.length;
+                    for (const todo of todosForDate) {
+                        todo.used_hours = parseFloat(todo.used_hours) || 0;
+                        todo.used_hours = parseFloat((parseFloat(todo.used_hours) + hoursPerTodo).toFixed(2));
+                        await saveTodo(todo);
+                        updatedCount++;
+                    }
                 }
             }
         }
@@ -682,10 +694,9 @@ function parseICalDate(dateStr) {
     return date;
 }
 
-function calculateTimeByDate(events) {
-    const timeByDate = {};
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+function calculateTimeByDateAndTitle(events) {
+    // Structure: { "2024-01-15": { "Mathe": 1.25, "Deutsch": 0.5 } }
+    const timeByDateAndTitle = {};
     
     events.forEach(event => {
         if (!event.start || !event.end) return;
@@ -701,17 +712,65 @@ function calculateTimeByDate(events) {
         // Format date as YYYY-MM-DD
         const dateKey = eventDate.toISOString().split('T')[0];
         
-        if (!timeByDate[dateKey]) {
-            timeByDate[dateKey] = 0;
+        // Get event title (summary) or use "Unbekannt" if missing
+        const eventTitle = (event.summary || '').trim();
+        
+        if (!timeByDateAndTitle[dateKey]) {
+            timeByDateAndTitle[dateKey] = {};
         }
         
-        timeByDate[dateKey] += durationHours;
+        if (!timeByDateAndTitle[dateKey][eventTitle]) {
+            timeByDateAndTitle[dateKey][eventTitle] = 0;
+        }
+        
+        timeByDateAndTitle[dateKey][eventTitle] += durationHours;
     });
     
-    return timeByDate;
+    return timeByDateAndTitle;
+}
+
+// Helper function for fuzzy title matching
+function matchTitle(calendarTitle, todoTitle) {
+    if (!calendarTitle || !todoTitle) return false;
+    
+    // Normalize: lowercase, trim, remove extra spaces
+    const normalize = (str) => str.toLowerCase().trim().replace(/\s+/g, ' ');
+    const calNorm = normalize(calendarTitle);
+    const todoNorm = normalize(todoTitle);
+    
+    // Exact match
+    if (calNorm === todoNorm) return true;
+    
+    // Contains match (calendar title contains todo title or vice versa)
+    if (calNorm.includes(todoNorm) || todoNorm.includes(calNorm)) return true;
+    
+    // Levenshtein-like similarity (simple version)
+    // Check if most words match
+    const calWords = calNorm.split(/\s+/);
+    const todoWords = todoNorm.split(/\s+/);
+    const matchingWords = calWords.filter(word => 
+        todoWords.some(todoWord => 
+            word === todoWord || 
+            word.includes(todoWord) || 
+            todoWord.includes(word)
+        )
+    );
+    
+    // If at least 50% of words match, consider it a match
+    if (calWords.length > 0 && matchingWords.length / calWords.length >= 0.5) {
+        return true;
+    }
+    
+    return false;
 }
 
 // Calendar Settings Functions
+function normalizeCalendarUrl(url) {
+    if (!url) return '';
+    // Convert webcal:// to https:// for HTTP requests
+    return url.replace(/^webcal:\/\//i, 'https://');
+}
+
 function getCalendarSettings() {
     try {
         const stored = localStorage.getItem('calendarSettings');
@@ -779,11 +838,14 @@ async function handleSettingsSubmit(e) {
 }
 
 async function testCalendarConnection() {
-    const url = document.getElementById('calendarUrl').value.trim();
+    let url = document.getElementById('calendarUrl').value.trim();
     if (!url) {
         alert('Bitte geben Sie eine Kalender-URL ein.');
         return;
     }
+    
+    // Normalize webcal:// to https://
+    url = normalizeCalendarUrl(url);
     
     showLoading();
     try {
@@ -811,37 +873,55 @@ async function syncCalendarFromUrl() {
     }
     
     try {
-        console.log('Syncing calendar from URL:', settings.url);
-        const response = await fetch(settings.url);
+        // Normalize webcal:// to https://
+        const normalizedUrl = normalizeCalendarUrl(settings.url);
+        console.log('Syncing calendar from URL:', normalizedUrl);
+        const response = await fetch(normalizedUrl);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         const text = await response.text();
         const events = parseICalFile(text);
-        const timeByDate = calculateTimeByDate(events);
+        const timeByDateAndTitle = calculateTimeByDateAndTitle(events);
         
-        // Update todos with calendar time
+        // Update todos with calendar time based on title matching
         // Store last sync time to avoid unnecessary updates
         const lastSyncKey = 'lastCalendarSyncTime';
-        const lastSyncTime = localStorage.getItem(lastSyncKey);
         const currentSyncTime = Date.now();
         
         let updatedCount = 0;
-        for (const [date, hours] of Object.entries(timeByDate)) {
+        for (const [date, timeByTitle] of Object.entries(timeByDateAndTitle)) {
             const todosForDate = todos.filter(t => t.date === date);
-            if (todosForDate.length > 0) {
-                // Distribute time equally across all todos for this date
-                const hoursPerTodo = hours / todosForDate.length;
-                const calendarTime = parseFloat(hoursPerTodo.toFixed(2));
+            
+            for (const [calendarTitle, hours] of Object.entries(timeByTitle)) {
+                // Try to find matching todo by title
+                let matchedTodo = todosForDate.find(todo => 
+                    matchTitle(calendarTitle, todo.text)
+                );
                 
-                for (const todo of todosForDate) {
-                    const currentUsedHours = parseFloat(todo.used_hours) || 0;
-                    // Update if calendar time is different (allows manual override if needed)
-                    // For auto-sync, use calendar as source of truth
+                if (matchedTodo) {
+                    // Exact or fuzzy match found - assign time to this todo
+                    const calendarTime = parseFloat(hours.toFixed(2));
+                    const currentUsedHours = parseFloat(matchedTodo.used_hours) || 0;
+                    
+                    // Update if calendar time is different
                     if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
-                        todo.used_hours = calendarTime;
-                        await saveTodo(todo);
+                        matchedTodo.used_hours = calendarTime;
+                        await saveTodo(matchedTodo);
                         updatedCount++;
+                    }
+                } else if (todosForDate.length > 0) {
+                    // No match found - distribute equally among all todos for this date
+                    const hoursPerTodo = hours / todosForDate.length;
+                    const calendarTime = parseFloat(hoursPerTodo.toFixed(2));
+                    
+                    for (const todo of todosForDate) {
+                        const currentUsedHours = parseFloat(todo.used_hours) || 0;
+                        if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
+                            todo.used_hours = calendarTime;
+                            await saveTodo(todo);
+                            updatedCount++;
+                        }
                     }
                 }
             }
