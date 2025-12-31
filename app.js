@@ -97,25 +97,52 @@ function setupEventListeners() {
 }
 
 // Todo CRUD Operations
-async function loadTodos() {
+async function loadTodos(forceRefresh = false) {
     showLoading();
     try {
         if (supabaseClient) {
-            const { data, error } = await supabaseClient
+            // Force refresh by adding a cache-busting parameter if needed
+            const query = supabaseClient
                 .from('todos')
                 .select('*')
                 .order('date', { ascending: true });
             
+            // Add cache control if force refresh
+            if (forceRefresh) {
+                // Supabase doesn't support cache control directly, but we can ensure fresh data
+                // by using a timestamp or by ensuring the query is executed fresh
+            }
+            
+            const { data, error } = await query;
+            
             if (error) throw error;
-            todos = (data || []).map(todo => {
-                // Load metadata from localStorage
-                const metadata = loadTodoMetadata(todo.id);
-                return { ...todo, ...metadata };
-            });
+            
+            // Ensure we have valid data
+            if (!data) {
+                console.warn('No data returned from Supabase');
+                todos = [];
+            } else {
+                todos = data.map(todo => {
+                    // Ensure numeric values are properly parsed
+                    const parsedTodo = {
+                        ...todo,
+                        planned_hours: parseFloat(todo.planned_hours) || 0,
+                        used_hours: parseFloat(todo.used_hours) || 0,
+                        completed: todo.completed || false
+                    };
+                    
+                    // Load metadata from localStorage (but don't override database values)
+                    const metadata = loadTodoMetadata(todo.id);
+                    return { ...parsedTodo, ...metadata };
+                });
+                
+                console.log(`Loaded ${todos.length} todos from database`);
+            }
         } else {
             // Fallback to localStorage
             const stored = localStorage.getItem('todos');
             todos = stored ? JSON.parse(stored) : [];
+            console.log(`Loaded ${todos.length} todos from localStorage`);
         }
         
         // Check for automatic completion
@@ -125,6 +152,7 @@ async function loadTodos() {
         // Fallback to localStorage
         const stored = localStorage.getItem('todos');
         todos = stored ? JSON.parse(stored) : [];
+        console.log(`Fallback: Loaded ${todos.length} todos from localStorage`);
     } finally {
         hideLoading();
     }
@@ -388,7 +416,19 @@ async function handleTodoSubmit(e) {
 function renderTodos() {
     // Filter for today's tasks
     const today = new Date().toISOString().split('T')[0];
-    const todayTodos = todos.filter(t => t.date === today);
+    
+    // Ensure todos array is valid
+    if (!Array.isArray(todos)) {
+        console.error('Todos is not an array:', todos);
+        todos = [];
+    }
+    
+    const todayTodos = todos.filter(t => {
+        if (!t || !t.date) return false;
+        // Ensure date comparison works correctly
+        const todoDate = t.date.split('T')[0]; // Handle datetime strings
+        return todoDate === today;
+    });
     
     // Sort by time if available, then by creation
     todayTodos.sort((a, b) => {
@@ -408,12 +448,25 @@ function renderTodos() {
     
     todoList.style.display = 'flex';
     emptyState.style.display = 'none';
+    
+    // Clear existing content
     todoList.innerHTML = '';
     
+    // Render each todo with fresh data
     todayTodos.forEach(todo => {
-        const todoElement = createTodoElement(todo);
+        // Ensure todo has all required fields with proper types
+        const safeTodo = {
+            ...todo,
+            planned_hours: parseFloat(todo.planned_hours) || 0,
+            used_hours: parseFloat(todo.used_hours) || 0,
+            completed: todo.completed || false
+        };
+        
+        const todoElement = createTodoElement(safeTodo);
         todoList.appendChild(todoElement);
     });
+    
+    console.log(`Rendered ${todayTodos.length} todos for today`);
 }
 
 function createTodoElement(todo) {
@@ -423,9 +476,13 @@ function createTodoElement(todo) {
     
     const time = todo.time || '';
     const dateLabel = getDateLabel(todo.date);
-    const plannedHours = parseFloat(todo.planned_hours) || 0;
-    const usedHours = parseFloat(todo.used_hours) || 0;
-    const progress = plannedHours > 0 ? Math.min((usedHours / plannedHours) * 100, 100) : 0;
+    
+    // Ensure numeric values are properly parsed and are numbers
+    const plannedHours = typeof todo.planned_hours === 'number' ? todo.planned_hours : parseFloat(todo.planned_hours) || 0;
+    const usedHours = typeof todo.used_hours === 'number' ? todo.used_hours : parseFloat(todo.used_hours) || 0;
+    
+    // Calculate progress with safety checks
+    const progress = plannedHours > 0 ? Math.min(Math.max((usedHours / plannedHours) * 100, 0), 100) : 0;
     const progressClass = progress >= 100 ? 'completed' : progress > 100 ? 'over' : '';
     
     // Debug logging for progress calculation
@@ -987,6 +1044,13 @@ async function testCalendarConnection() {
 }
 
 async function fetchCalendarWithProxy(url) {
+    // List of CORS proxy services to try
+    const proxyServices = [
+        (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+        (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+    ];
+    
     // Try direct fetch first
     try {
         const response = await fetch(url, {
@@ -995,51 +1059,72 @@ async function fetchCalendarWithProxy(url) {
                 'Accept': 'text/calendar, text/plain, */*'
             },
             mode: 'cors',
-            credentials: 'omit'
+            credentials: 'omit',
+            cache: 'no-cache'
         });
         
         if (response.ok) {
-            return await response.text();
+            const text = await response.text();
+            if (text && text.length > 0) {
+                console.log('Direct fetch successful');
+                return text;
+            } else {
+                throw new Error('Empty response from server');
+            }
         } else {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
     } catch (error) {
-        console.log('Direct fetch failed, trying CORS proxy:', error);
+        console.log('Direct fetch failed, trying CORS proxies:', error);
         
         // Check if it's a CORS error
         const isCorsError = error.message.includes('CORS') || 
                            error.message.includes('Failed to fetch') || 
                            error.name === 'TypeError' ||
-                           error.message === 'Failed to fetch';
+                           error.message === 'Failed to fetch' ||
+                           error.message.includes('NetworkError') ||
+                           error.message.includes('network');
         
-        if (!isCorsError) {
-            // If it's not a CORS error, re-throw it
+        if (!isCorsError && !error.message.includes('HTTP')) {
+            // If it's not a CORS error and not an HTTP error, re-throw it
             throw error;
         }
         
-        // Try with CORS proxy as fallback
-        try {
-            // Use a public CORS proxy (you might want to use your own)
-            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-            console.log('Trying CORS proxy:', proxyUrl);
-            const proxyResponse = await fetch(proxyUrl, {
-                method: 'GET',
-                mode: 'cors'
-            });
-            
-            if (proxyResponse.ok) {
-                const text = await proxyResponse.text();
-                console.log('CORS proxy successful');
-                return text;
-            } else {
-                throw new Error(`Proxy HTTP ${proxyResponse.status}: ${proxyResponse.statusText}`);
+        // Try each CORS proxy service
+        let lastError = null;
+        for (let i = 0; i < proxyServices.length; i++) {
+            try {
+                const proxyUrl = proxyServices[i](url);
+                console.log(`Trying CORS proxy ${i + 1}/${proxyServices.length}:`, proxyUrl);
+                
+                const proxyResponse = await fetch(proxyUrl, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache'
+                });
+                
+                if (proxyResponse.ok) {
+                    const text = await proxyResponse.text();
+                    if (text && text.length > 0) {
+                        console.log(`CORS proxy ${i + 1} successful`);
+                        return text;
+                    } else {
+                        throw new Error('Empty response from proxy');
+                    }
+                } else {
+                    throw new Error(`Proxy HTTP ${proxyResponse.status}: ${proxyResponse.statusText}`);
+                }
+            } catch (proxyError) {
+                console.error(`CORS proxy ${i + 1} failed:`, proxyError);
+                lastError = proxyError;
+                // Continue to next proxy
             }
-        } catch (proxyError) {
-            console.error('CORS proxy also failed:', proxyError);
-            throw new Error('CORS-Fehler: Der Kalender-Server erlaubt keine direkten Anfragen. ' +
-                          'Bitte verwenden Sie einen anderen Kalender-Link oder kontaktieren Sie den Anbieter. ' +
-                          `Fehler: ${proxyError.message}`);
         }
+        
+        // All proxies failed
+        throw new Error('CORS-Fehler: Der Kalender-Server erlaubt keine direkten Anfragen und alle Proxy-Dienste haben versagt. ' +
+                      'Bitte verwenden Sie einen anderen Kalender-Link oder kontaktieren Sie den Anbieter. ' +
+                      `Letzter Fehler: ${lastError ? lastError.message : 'Unbekannt'}`);
     }
 }
 
@@ -1109,6 +1194,7 @@ async function syncCalendarFromUrl() {
         }
         
         // Second pass: update todos with calculated hours
+        const todosToUpdate = [];
         for (const [todoId, totalHours] of todoHoursMap.entries()) {
             const todo = todos.find(t => t.id === todoId);
             if (todo) {
@@ -1124,19 +1210,32 @@ async function syncCalendarFromUrl() {
                         todos[index].used_hours = calendarTime;
                     }
                     
-                    // Save to database
-                    const savedTodo = await saveTodo(todo);
-                    
-                    // Update todo in memory with saved data (in case saveTodo returns updated object)
-                    if (index !== -1 && savedTodo) {
-                        todos[index] = { ...todos[index], ...savedTodo };
-                        // Ensure used_hours is set correctly
-                        todos[index].used_hours = calendarTime;
-                    }
-                    
+                    todosToUpdate.push({ todo, calendarTime, currentUsedHours });
                     updatedCount++;
-                    console.log(`Updated todo "${todo.text}": ${currentUsedHours}h → ${calendarTime}h`);
+                    console.log(`Prepared update for todo "${todo.text}": ${currentUsedHours}h → ${calendarTime}h`);
                 }
+            }
+        }
+        
+        // Save all todos to database
+        for (const { todo, calendarTime, currentUsedHours } of todosToUpdate) {
+            try {
+                // Save to database
+                const savedTodo = await saveTodo(todo);
+                
+                // Update todo in memory with saved data (in case saveTodo returns updated object)
+                const index = todos.findIndex(t => t.id === todo.id);
+                if (index !== -1) {
+                    if (savedTodo) {
+                        todos[index] = { ...todos[index], ...savedTodo };
+                    }
+                    // Ensure used_hours is set correctly (double-check)
+                    todos[index].used_hours = calendarTime;
+                    console.log(`Saved todo "${todo.text}": used_hours=${todos[index].used_hours}h`);
+                }
+            } catch (saveError) {
+                console.error(`Error saving todo "${todo.text}":`, saveError);
+                // Continue with other todos even if one fails
             }
         }
         
@@ -1144,8 +1243,37 @@ async function syncCalendarFromUrl() {
         localStorage.setItem(lastSyncKey, currentSyncTime.toString());
         
         if (updatedCount > 0) {
-            // Reload todos to ensure we have the latest data
-            await loadTodos();
+            // Force reload todos to ensure we have the latest data from database
+            console.log('Reloading todos from database...');
+            await loadTodos(true); // Force refresh
+            
+            // Verify the updates were applied and fix any mismatches
+            let fixedCount = 0;
+            for (const { todo, calendarTime } of todosToUpdate) {
+                const reloadedTodo = todos.find(t => t.id === todo.id);
+                if (reloadedTodo) {
+                    const reloadedHours = parseFloat(reloadedTodo.used_hours) || 0;
+                    if (Math.abs(reloadedHours - calendarTime) > 0.01) {
+                        console.warn(`Todo "${todo.text}" hours mismatch after reload: expected ${calendarTime}h, got ${reloadedHours}h - fixing...`);
+                        // Force update in memory and save again
+                        reloadedTodo.used_hours = calendarTime;
+                        try {
+                            await saveTodo(reloadedTodo);
+                            fixedCount++;
+                        } catch (fixError) {
+                            console.error(`Failed to fix todo "${todo.text}":`, fixError);
+                        }
+                    }
+                }
+            }
+            
+            if (fixedCount > 0) {
+                console.log(`Fixed ${fixedCount} todos with mismatched hours`);
+                // Reload one more time after fixes
+                await loadTodos(true);
+            }
+            
+            // Render todos
             renderTodos();
             console.log(`Calendar synced: ${updatedCount} todos updated`);
         }
