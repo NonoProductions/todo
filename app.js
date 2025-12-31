@@ -428,6 +428,11 @@ function createTodoElement(todo) {
     const progress = plannedHours > 0 ? Math.min((usedHours / plannedHours) * 100, 100) : 0;
     const progressClass = progress >= 100 ? 'completed' : progress > 100 ? 'over' : '';
     
+    // Debug logging for progress calculation
+    if (plannedHours > 0) {
+        console.log(`Rendering todo "${todo.text}": planned=${plannedHours}h, used=${usedHours}h, progress=${progress.toFixed(1)}%`);
+    }
+    
     div.innerHTML = `
         <div class="delete-indicator">Löschen</div>
         <div class="todo-checkbox-wrapper">
@@ -958,20 +963,83 @@ async function testCalendarConnection() {
     
     showLoading();
     try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        const text = await response.text();
+        const text = await fetchCalendarWithProxy(url);
+        
         if (!text.includes('BEGIN:VCALENDAR') && !text.includes('BEGIN:VEVENT')) {
             throw new Error('Die URL scheint keine gültige iCal-Datei zu sein.');
         }
         alert('Verbindung erfolgreich! Die Kalender-URL funktioniert.');
     } catch (error) {
         console.error('Connection test failed:', error);
-        alert('Verbindung fehlgeschlagen: ' + error.message);
+        let errorMessage = error.message;
+        
+        // Check for CORS errors
+        if (error.message.includes('CORS') || error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+            errorMessage = 'CORS-Fehler: Der Server erlaubt keine direkten Anfragen von dieser Website. ' +
+                          'Dies ist ein Sicherheitsfeature des Browsers. ' +
+                          'Die App versucht automatisch einen CORS-Proxy zu verwenden.';
+        }
+        
+        alert('Verbindung fehlgeschlagen: ' + errorMessage);
     } finally {
         hideLoading();
+    }
+}
+
+async function fetchCalendarWithProxy(url) {
+    // Try direct fetch first
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'text/calendar, text/plain, */*'
+            },
+            mode: 'cors',
+            credentials: 'omit'
+        });
+        
+        if (response.ok) {
+            return await response.text();
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+    } catch (error) {
+        console.log('Direct fetch failed, trying CORS proxy:', error);
+        
+        // Check if it's a CORS error
+        const isCorsError = error.message.includes('CORS') || 
+                           error.message.includes('Failed to fetch') || 
+                           error.name === 'TypeError' ||
+                           error.message === 'Failed to fetch';
+        
+        if (!isCorsError) {
+            // If it's not a CORS error, re-throw it
+            throw error;
+        }
+        
+        // Try with CORS proxy as fallback
+        try {
+            // Use a public CORS proxy (you might want to use your own)
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+            console.log('Trying CORS proxy:', proxyUrl);
+            const proxyResponse = await fetch(proxyUrl, {
+                method: 'GET',
+                mode: 'cors'
+            });
+            
+            if (proxyResponse.ok) {
+                const text = await proxyResponse.text();
+                console.log('CORS proxy successful');
+                return text;
+            } else {
+                throw new Error(`Proxy HTTP ${proxyResponse.status}: ${proxyResponse.statusText}`);
+            }
+        } catch (proxyError) {
+            console.error('CORS proxy also failed:', proxyError);
+            throw new Error('CORS-Fehler: Der Kalender-Server erlaubt keine direkten Anfragen. ' +
+                          'Bitte verwenden Sie einen anderen Kalender-Link oder kontaktieren Sie den Anbieter. ' +
+                          `Fehler: ${proxyError.message}`);
+        }
     }
 }
 
@@ -985,11 +1053,8 @@ async function syncCalendarFromUrl() {
         // Normalize webcal:// to https://
         const normalizedUrl = normalizeCalendarUrl(settings.url);
         console.log('Syncing calendar from URL:', normalizedUrl);
-        const response = await fetch(normalizedUrl);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        const text = await response.text();
+        
+        const text = await fetchCalendarWithProxy(normalizedUrl);
         const events = parseICalFile(text);
         const timeByDateAndTitle = calculateTimeByDateAndTitle(events);
         
@@ -1052,8 +1117,23 @@ async function syncCalendarFromUrl() {
                 
                 // Update if calendar time is different
                 if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
+                    // Update todo in memory first
                     todo.used_hours = calendarTime;
-                    await saveTodo(todo);
+                    const index = todos.findIndex(t => t.id === todoId);
+                    if (index !== -1) {
+                        todos[index].used_hours = calendarTime;
+                    }
+                    
+                    // Save to database
+                    const savedTodo = await saveTodo(todo);
+                    
+                    // Update todo in memory with saved data (in case saveTodo returns updated object)
+                    if (index !== -1 && savedTodo) {
+                        todos[index] = { ...todos[index], ...savedTodo };
+                        // Ensure used_hours is set correctly
+                        todos[index].used_hours = calendarTime;
+                    }
+                    
                     updatedCount++;
                     console.log(`Updated todo "${todo.text}": ${currentUsedHours}h → ${calendarTime}h`);
                 }
@@ -1064,6 +1144,7 @@ async function syncCalendarFromUrl() {
         localStorage.setItem(lastSyncKey, currentSyncTime.toString());
         
         if (updatedCount > 0) {
+            // Reload todos to ensure we have the latest data
             await loadTodos();
             renderTodos();
             console.log(`Calendar synced: ${updatedCount} todos updated`);
