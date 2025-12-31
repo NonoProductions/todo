@@ -52,9 +52,10 @@ header {
 }
 
 .header-content {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: center;
+    gap: 16px;
     position: relative;
 }
 
@@ -64,14 +65,75 @@ header h1 {
     color: var(--text-primary);
     letter-spacing: -0.5px;
     text-align: center;
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.2s ease;
+}
+
+header h1:hover {
+    opacity: 0.8;
+}
+
+.date-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    grid-column: 2; /* Center column */
+}
+
+.date-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.date-nav-btn {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-primary);
+    padding: 0;
+}
+
+.date-nav-btn:hover {
+    background: var(--bg-card);
+    transform: scale(1.05);
+}
+
+.date-nav-btn:active {
+    transform: scale(0.95);
+}
+
+.date-nav-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+#datePicker {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 8px;
+    font-size: 14px;
+    cursor: pointer;
 }
 
 .header-buttons {
-    position: absolute;
-    right: 0;
     display: flex;
     gap: 8px;
     align-items: center;
+    justify-content: flex-end;
+    grid-column: 3; /* Right column */
 }
 
 .calendar-import-btn,
@@ -584,9 +646,57 @@ form {
     .container {
         padding: 16px 12px 100px;
     }
+    
+    .date-navigation {
+        gap: 12px;
+    }
+    
+    .date-nav-btn {
+        width: 40px;
+        height: 40px;
+    }
 
     header h1 {
         font-size: 28px;
+    }
+    
+    .header-content {
+        gap: 8px;
+    }
+    
+    .date-navigation {
+        gap: 8px;
+        margin-right: 8px;
+    }
+    
+    .date-nav-btn {
+        width: 36px;
+        height: 36px;
+    }
+    
+    .date-nav-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+    
+    header h1 {
+        font-size: 24px;
+    }
+    
+    .header-buttons {
+        gap: 4px;
+    }
+    
+    .calendar-import-btn,
+    .calendar-settings-btn {
+        width: 36px;
+        height: 36px;
+    }
+    
+    .calendar-import-btn svg,
+    .calendar-settings-btn svg {
+        width: 18px;
+        height: 18px;
     }
 
     .todo-item {

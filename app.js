@@ -30,6 +30,7 @@ function initializeSupabase() {
 let todos = [];
 let editingTodoId = null;
 let calendarSyncInterval = null;
+let selectedDate = new Date().toISOString().split('T')[0]; // Current selected date
 
 // DOM Elements
 const todoList = document.getElementById('todoList');
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initializeSupabase();
     await loadTodos();
     setupEventListeners();
+    updateDateDisplay(); // Initialize date display
     renderTodos();
     
     // Load calendar settings and auto-sync if enabled
@@ -66,6 +68,19 @@ function setupEventListeners() {
             const dateType = e.target.dataset.date;
             setDateQuickSelect(dateType);
         });
+    });
+    
+    // Date navigation buttons
+    document.getElementById('prevDateBtn').addEventListener('click', () => navigateDate(-1));
+    document.getElementById('nextDateBtn').addEventListener('click', () => navigateDate(1));
+    document.getElementById('dateTitle').addEventListener('click', () => {
+        const datePicker = document.getElementById('datePicker');
+        datePicker.style.display = 'block';
+        datePicker.showPicker();
+    });
+    document.getElementById('datePicker').addEventListener('change', (e) => {
+        setSelectedDate(e.target.value);
+        document.getElementById('datePicker').style.display = 'none';
     });
     
     // Form Submission
@@ -413,9 +428,72 @@ async function handleTodoSubmit(e) {
     }
 }
 
-function renderTodos() {
-    // Filter for today's tasks
+function navigateDate(days) {
+    // Parse the selected date properly
+    const currentDate = new Date(selectedDate + 'T12:00:00'); // Use noon to avoid timezone issues
+    const newDate = new Date(currentDate);
+    newDate.setDate(newDate.getDate() + days);
+    
+    // Format as YYYY-MM-DD
+    const year = newDate.getFullYear();
+    const month = String(newDate.getMonth() + 1).padStart(2, '0');
+    const day = String(newDate.getDate()).padStart(2, '0');
+    const newDateStr = `${year}-${month}-${day}`;
+    
+    console.log(`Navigating from ${selectedDate} by ${days} days to ${newDateStr}`);
+    setSelectedDate(newDateStr);
+}
+
+function setSelectedDate(date) {
+    selectedDate = date;
+    updateDateDisplay();
+    renderTodos();
+}
+
+function updateDateDisplay() {
+    const dateTitle = document.getElementById('dateTitle');
+    const datePicker = document.getElementById('datePicker');
+    const emptyStateText = document.getElementById('emptyStateText');
+    
     const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    datePicker.value = selectedDate;
+    
+    if (selectedDate === today) {
+        dateTitle.textContent = 'Heute';
+        emptyStateText.textContent = 'Keine Aufgaben für heute';
+    } else if (selectedDate === tomorrowStr) {
+        dateTitle.textContent = 'Morgen';
+        emptyStateText.textContent = 'Keine Aufgaben für morgen';
+    } else if (selectedDate === yesterdayStr) {
+        dateTitle.textContent = 'Gestern';
+        emptyStateText.textContent = 'Keine Aufgaben für gestern';
+    } else {
+        const date = new Date(selectedDate + 'T00:00:00');
+        const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 
+                       'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+        const dayNames = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+        const dayName = dayNames[date.getDay()];
+        const day = date.getDate();
+        const month = months[date.getMonth()];
+        dateTitle.textContent = `${dayName}, ${day}. ${month}`;
+        emptyStateText.textContent = `Keine Aufgaben für ${day}. ${month}`;
+    }
+    
+    // Disable prev button if we're at the earliest date (optional: can be removed)
+    // Enable/disable next button based on future dates (optional)
+}
+
+function renderTodos() {
+    // Filter for selected date
+    const filterDate = selectedDate;
     
     // Ensure todos array is valid
     if (!Array.isArray(todos)) {
@@ -423,15 +501,15 @@ function renderTodos() {
         todos = [];
     }
     
-    const todayTodos = todos.filter(t => {
+    const filteredTodos = todos.filter(t => {
         if (!t || !t.date) return false;
         // Ensure date comparison works correctly
         const todoDate = t.date.split('T')[0]; // Handle datetime strings
-        return todoDate === today;
+        return todoDate === filterDate;
     });
     
     // Sort by time if available, then by creation
-    todayTodos.sort((a, b) => {
+    filteredTodos.sort((a, b) => {
         if (a.time && b.time) {
             return a.time.localeCompare(b.time);
         }
@@ -440,7 +518,7 @@ function renderTodos() {
         return 0;
     });
     
-    if (todayTodos.length === 0) {
+    if (filteredTodos.length === 0) {
         todoList.style.display = 'none';
         emptyState.style.display = 'block';
         return;
@@ -453,7 +531,7 @@ function renderTodos() {
     todoList.innerHTML = '';
     
     // Render each todo with fresh data
-    todayTodos.forEach(todo => {
+    filteredTodos.forEach(todo => {
         // Ensure todo has all required fields with proper types
         const safeTodo = {
             ...todo,
@@ -466,7 +544,7 @@ function renderTodos() {
         todoList.appendChild(todoElement);
     });
     
-    console.log(`Rendered ${todayTodos.length} todos for today`);
+    console.log(`Rendered ${filteredTodos.length} todos for ${selectedDate}`);
 }
 
 function createTodoElement(todo) {
@@ -628,9 +706,23 @@ async function handleCalendarImport(event) {
         const timeByDateAndTitle = calculateTimeByDateAndTitle(events);
         
         // Update todos with calendar time based on title matching
+        // Only process events for the currently selected date
+        const today = selectedDate;
+        console.log(`Manual import: Filtering events for selected date: ${today}`);
+        
         let updatedCount = 0;
         for (const [date, timeByTitle] of Object.entries(timeByDateAndTitle)) {
-            const todosForDate = todos.filter(t => t.date === date);
+            // Only process events for the selected date
+            if (date !== today) {
+                console.log(`Skipping date ${date} (not selected date ${today})`);
+                continue;
+            }
+            
+            const todosForDate = todos.filter(t => {
+                // Ensure date comparison works correctly
+                const todoDate = t.date ? t.date.split('T')[0] : null;
+                return todoDate === date;
+            });
             
             for (const [calendarTitle, hours] of Object.entries(timeByTitle)) {
                 // Try to find matching todo by title
@@ -1150,12 +1242,27 @@ async function syncCalendarFromUrl() {
         
         let updatedCount = 0;
         console.log('Syncing calendar events:', timeByDateAndTitle);
+        console.log('Selected date:', selectedDate);
         
         // First pass: match events to todos and calculate total hours per todo
         const todoHoursMap = new Map(); // Map<todoId, totalHours>
         
+        // Only process events for the currently selected date
+        const today = selectedDate; // Use selectedDate instead of hardcoded today
+        console.log(`Filtering events for selected date: ${today}`);
+        
         for (const [date, timeByTitle] of Object.entries(timeByDateAndTitle)) {
-            const todosForDate = todos.filter(t => t.date === date);
+            // Only process events for the selected date
+            if (date !== today) {
+                console.log(`Skipping date ${date} (not selected date ${today})`);
+                continue;
+            }
+            
+            const todosForDate = todos.filter(t => {
+                // Ensure date comparison works correctly
+                const todoDate = t.date ? t.date.split('T')[0] : null;
+                return todoDate === date;
+            });
             console.log(`Processing date ${date}: ${todosForDate.length} todos found`);
             
             // Track unmatched hours for this date

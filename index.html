@@ -16,7 +16,22 @@
     <div class="container">
         <header>
             <div class="header-content">
-                <h1>Heute</h1>
+                <div class="date-navigation">
+                    <button class="date-nav-btn" id="prevDateBtn" title="Vorheriger Tag">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </button>
+                    <div class="date-display">
+                        <h1 id="dateTitle">Heute</h1>
+                        <input type="date" id="datePicker" style="display: none;">
+                    </div>
+                    <button class="date-nav-btn" id="nextDateBtn" title="Nächster Tag">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </button>
+                </div>
                 <div class="header-buttons">
                     <button class="calendar-settings-btn" id="calendarSettingsBtn" title="Kalender-Einstellungen">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -42,7 +57,7 @@
         </div>
 
         <div class="empty-state" id="emptyState">
-            <p>Keine Aufgaben für heute</p>
+            <p id="emptyStateText">Keine Aufgaben für heute</p>
         </div>
     </div>
 
