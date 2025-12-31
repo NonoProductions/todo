@@ -578,16 +578,20 @@ async function handleCalendarImport(event) {
                 
                 if (matchedTodo) {
                     // Exact or fuzzy match found - assign time to this todo
-                    matchedTodo.used_hours = parseFloat(matchedTodo.used_hours) || 0;
-                    matchedTodo.used_hours = parseFloat((parseFloat(matchedTodo.used_hours) + hours).toFixed(2));
+                    // For manual import, add hours (user might import multiple times)
+                    const currentUsedHours = parseFloat(matchedTodo.used_hours) || 0;
+                    const newUsedHours = parseFloat((currentUsedHours + hours).toFixed(2));
+                    matchedTodo.used_hours = newUsedHours;
                     await saveTodo(matchedTodo);
                     updatedCount++;
                 } else if (todosForDate.length > 0) {
                     // No match found - distribute equally among all todos for this date
                     const hoursPerTodo = hours / todosForDate.length;
                     for (const todo of todosForDate) {
-                        todo.used_hours = parseFloat(todo.used_hours) || 0;
-                        todo.used_hours = parseFloat((parseFloat(todo.used_hours) + hoursPerTodo).toFixed(2));
+                        // For manual import, add hours
+                        const currentUsedHours = parseFloat(todo.used_hours) || 0;
+                        const newUsedHours = parseFloat((currentUsedHours + hoursPerTodo).toFixed(2));
+                        todo.used_hours = newUsedHours;
                         await saveTodo(todo);
                         updatedCount++;
                     }
@@ -640,14 +644,20 @@ function parseICalFile(icalText) {
             currentEvent = null;
         } else if (inEvent && currentEvent) {
             if (line.startsWith('DTSTART')) {
-                const dateStr = extractDateFromLine(line);
-                if (dateStr) {
-                    currentEvent.start = parseICalDate(dateStr);
+                const dateInfo = extractDateFromLine(line);
+                if (dateInfo && dateInfo.dateStr) {
+                    currentEvent.start = parseICalDate(dateInfo);
                 }
             } else if (line.startsWith('DTEND')) {
-                const dateStr = extractDateFromLine(line);
-                if (dateStr) {
-                    currentEvent.end = parseICalDate(dateStr);
+                const dateInfo = extractDateFromLine(line);
+                if (dateInfo && dateInfo.dateStr) {
+                    currentEvent.end = parseICalDate(dateInfo);
+                }
+            } else if (line.startsWith('DURATION:')) {
+                // Handle DURATION if DTEND is missing
+                const durationStr = line.substring(9).trim();
+                if (currentEvent.start && !currentEvent.end) {
+                    currentEvent.end = parseDuration(currentEvent.start, durationStr);
                 }
             } else if (line.startsWith('SUMMARY:')) {
                 currentEvent.summary = line.substring(8).trim();
@@ -659,19 +669,49 @@ function parseICalFile(icalText) {
 }
 
 function extractDateFromLine(line) {
-    // Handle both DTSTART:20240101T120000Z and DTSTART;VALUE=DATE:20240101
+    // Handle formats like:
+    // DTSTART:20240101T120000Z
+    // DTSTART;VALUE=DATE:20240101
+    // DTSTART;TZID=Europe/Berlin:20240101T120000
+    // DTSTART:20240101T120000+0100
+    
     const colonIndex = line.indexOf(':');
     if (colonIndex === -1) return null;
     
+    // Extract the date part (everything after the last colon, handling parameters)
     let dateStr = line.substring(colonIndex + 1);
-    // Remove timezone info if present
-    dateStr = dateStr.replace(/Z$/, '').replace(/[+-]\d{4}$/, '');
     
-    return dateStr;
+    // Check for timezone indicators
+    const hasZ = dateStr.endsWith('Z');
+    const timezoneMatch = dateStr.match(/[+-]\d{4}$/);
+    const timezoneOffset = timezoneMatch ? timezoneMatch[0] : null;
+    
+    // Remove timezone info for parsing
+    if (hasZ) {
+        dateStr = dateStr.replace(/Z$/, '');
+    } else if (timezoneOffset) {
+        dateStr = dateStr.replace(/[+-]\d{4}$/, '');
+    }
+    
+    return { dateStr, isUTC: hasZ, timezoneOffset };
 }
 
-function parseICalDate(dateStr) {
+function parseICalDate(dateInfo) {
     // Handle formats: 20240101T120000 or 20240101
+    // dateInfo can be a string (backward compatibility) or { dateStr, isUTC, timezoneOffset }
+    let dateStr, isUTC, timezoneOffset;
+    
+    if (typeof dateInfo === 'string') {
+        // Backward compatibility
+        dateStr = dateInfo;
+        isUTC = false;
+        timezoneOffset = null;
+    } else {
+        dateStr = dateInfo.dateStr;
+        isUTC = dateInfo.isUTC;
+        timezoneOffset = dateInfo.timezoneOffset;
+    }
+    
     let date;
     if (dateStr.includes('T')) {
         // Has time component
@@ -682,16 +722,71 @@ function parseICalDate(dateStr) {
         const hour = parseInt(timePart.substring(0, 2)) || 0;
         const minute = parseInt(timePart.substring(2, 4)) || 0;
         const second = parseInt(timePart.substring(4, 6)) || 0;
-        date = new Date(Date.UTC(year, month, day, hour, minute, second));
+        
+        if (isUTC) {
+            // Parse as UTC
+            date = new Date(Date.UTC(year, month, day, hour, minute, second));
+        } else if (timezoneOffset) {
+            // Parse with timezone offset (format: +0100 or -0500)
+            // Extract sign and hours/minutes
+            const sign = timezoneOffset[0] === '+' ? 1 : -1;
+            const offsetHours = sign * parseInt(timezoneOffset.substring(1, 3));
+            const offsetMinutes = sign * parseInt(timezoneOffset.substring(3, 5));
+            const offsetMs = (offsetHours * 60 + offsetMinutes) * 60 * 1000;
+            // Subtract offset to convert to UTC
+            date = new Date(Date.UTC(year, month, day, hour, minute, second) - offsetMs);
+        } else {
+            // Floating time - parse as local time
+            date = new Date(year, month, day, hour, minute, second);
+        }
     } else {
-        // Date only
+        // Date only - always parse as local date
         const year = parseInt(dateStr.substring(0, 4));
         const month = parseInt(dateStr.substring(4, 6)) - 1;
         const day = parseInt(dateStr.substring(6, 8));
-        date = new Date(Date.UTC(year, month, day));
+        date = new Date(year, month, day);
     }
     
     return date;
+}
+
+function parseDuration(startDate, durationStr) {
+    // Parse iCal DURATION format: PT1H30M (1 hour 30 minutes) or PT2H (2 hours) or PT30M (30 minutes)
+    // Format: P[nY][nM][nD]T[nH][nM][nS] where only T part is used for time durations
+    if (!durationStr || !durationStr.startsWith('PT')) {
+        return null;
+    }
+    
+    const timePart = durationStr.substring(2); // Remove 'PT'
+    let hours = 0;
+    let minutes = 0;
+    let seconds = 0;
+    
+    // Extract hours
+    const hoursMatch = timePart.match(/(\d+)H/);
+    if (hoursMatch) {
+        hours = parseInt(hoursMatch[1]);
+    }
+    
+    // Extract minutes
+    const minutesMatch = timePart.match(/(\d+)M/);
+    if (minutesMatch) {
+        minutes = parseInt(minutesMatch[1]);
+    }
+    
+    // Extract seconds
+    const secondsMatch = timePart.match(/(\d+)S/);
+    if (secondsMatch) {
+        seconds = parseInt(secondsMatch[1]);
+    }
+    
+    // Calculate end date
+    const endDate = new Date(startDate);
+    endDate.setHours(endDate.getHours() + hours);
+    endDate.setMinutes(endDate.getMinutes() + minutes);
+    endDate.setSeconds(endDate.getSeconds() + seconds);
+    
+    return endDate;
 }
 
 function calculateTimeByDateAndTitle(events) {
@@ -701,19 +796,30 @@ function calculateTimeByDateAndTitle(events) {
     events.forEach(event => {
         if (!event.start || !event.end) return;
         
-        // Convert to local date
+        // Convert to local date (event.start is already a Date object)
         const eventDate = new Date(event.start);
-        eventDate.setHours(0, 0, 0, 0);
+        // Get local date components (not UTC)
+        const year = eventDate.getFullYear();
+        const month = String(eventDate.getMonth() + 1).padStart(2, '0');
+        const day = String(eventDate.getDate()).padStart(2, '0');
+        
+        // Format date as YYYY-MM-DD in local timezone
+        const dateKey = `${year}-${month}-${day}`;
         
         // Calculate duration in hours
         const durationMs = event.end.getTime() - event.start.getTime();
+        // Validate duration (should be positive)
+        if (durationMs <= 0) {
+            console.warn(`Invalid event duration (end <= start) for "${event.summary || 'Unbekannt'}"`, {
+                start: event.start,
+                end: event.end
+            });
+            return; // Skip invalid events
+        }
         const durationHours = durationMs / (1000 * 60 * 60);
         
-        // Format date as YYYY-MM-DD
-        const dateKey = eventDate.toISOString().split('T')[0];
-        
         // Get event title (summary) or use "Unbekannt" if missing
-        const eventTitle = (event.summary || '').trim();
+        const eventTitle = (event.summary || 'Unbekannt').trim() || 'Unbekannt';
         
         if (!timeByDateAndTitle[dateKey]) {
             timeByDateAndTitle[dateKey] = {};
@@ -724,6 +830,9 @@ function calculateTimeByDateAndTitle(events) {
         }
         
         timeByDateAndTitle[dateKey][eventTitle] += durationHours;
+        
+        // Debug logging
+        console.log(`Calendar event: ${dateKey} - "${eventTitle}" - ${durationHours.toFixed(2)}h`);
     });
     
     return timeByDateAndTitle;
@@ -890,39 +999,63 @@ async function syncCalendarFromUrl() {
         const currentSyncTime = Date.now();
         
         let updatedCount = 0;
+        console.log('Syncing calendar events:', timeByDateAndTitle);
+        
+        // First pass: match events to todos and calculate total hours per todo
+        const todoHoursMap = new Map(); // Map<todoId, totalHours>
+        
         for (const [date, timeByTitle] of Object.entries(timeByDateAndTitle)) {
             const todosForDate = todos.filter(t => t.date === date);
+            console.log(`Processing date ${date}: ${todosForDate.length} todos found`);
+            
+            // Track unmatched hours for this date
+            let unmatchedHours = 0;
             
             for (const [calendarTitle, hours] of Object.entries(timeByTitle)) {
+                console.log(`  Looking for match: "${calendarTitle}" (${hours.toFixed(2)}h)`);
                 // Try to find matching todo by title
                 let matchedTodo = todosForDate.find(todo => 
                     matchTitle(calendarTitle, todo.text)
                 );
                 
                 if (matchedTodo) {
-                    // Exact or fuzzy match found - assign time to this todo
-                    const calendarTime = parseFloat(hours.toFixed(2));
-                    const currentUsedHours = parseFloat(matchedTodo.used_hours) || 0;
+                    // Exact or fuzzy match found - add hours to this todo
+                    const currentHours = todoHoursMap.get(matchedTodo.id) || 0;
+                    todoHoursMap.set(matchedTodo.id, currentHours + hours);
                     
-                    // Update if calendar time is different
-                    if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
-                        matchedTodo.used_hours = calendarTime;
-                        await saveTodo(matchedTodo);
-                        updatedCount++;
-                    }
-                } else if (todosForDate.length > 0) {
-                    // No match found - distribute equally among all todos for this date
-                    const hoursPerTodo = hours / todosForDate.length;
-                    const calendarTime = parseFloat(hoursPerTodo.toFixed(2));
-                    
-                    for (const todo of todosForDate) {
-                        const currentUsedHours = parseFloat(todo.used_hours) || 0;
-                        if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
-                            todo.used_hours = calendarTime;
-                            await saveTodo(todo);
-                            updatedCount++;
-                        }
-                    }
+                    console.log(`    ✓ Matched with todo: "${matchedTodo.text}" (adding ${hours.toFixed(2)}h)`);
+                } else {
+                    // No match found - add to unmatched hours for distribution
+                    unmatchedHours += hours;
+                    console.log(`    ✗ No match found for "${calendarTitle}" (${hours.toFixed(2)}h)`);
+                }
+            }
+            
+            // Distribute unmatched hours equally among all todos for this date
+            if (unmatchedHours > 0 && todosForDate.length > 0) {
+                const hoursPerTodo = unmatchedHours / todosForDate.length;
+                console.log(`  Distributing ${unmatchedHours.toFixed(2)}h unmatched hours among ${todosForDate.length} todos (${hoursPerTodo.toFixed(2)}h each)`);
+                
+                for (const todo of todosForDate) {
+                    const currentHours = todoHoursMap.get(todo.id) || 0;
+                    todoHoursMap.set(todo.id, currentHours + hoursPerTodo);
+                }
+            }
+        }
+        
+        // Second pass: update todos with calculated hours
+        for (const [todoId, totalHours] of todoHoursMap.entries()) {
+            const todo = todos.find(t => t.id === todoId);
+            if (todo) {
+                const calendarTime = parseFloat(totalHours.toFixed(2));
+                const currentUsedHours = parseFloat(todo.used_hours) || 0;
+                
+                // Update if calendar time is different
+                if (Math.abs(calendarTime - currentUsedHours) > 0.01) {
+                    todo.used_hours = calendarTime;
+                    await saveTodo(todo);
+                    updatedCount++;
+                    console.log(`Updated todo "${todo.text}": ${currentUsedHours}h → ${calendarTime}h`);
                 }
             }
         }
