@@ -32,7 +32,6 @@ let editingTodoId = null;
 let calendarSyncInterval = null;
 let selectedDate = new Date().toISOString().split('T')[0]; // Current selected date
 let notificationCheckInterval = null;
-let activeNotifications = new Map(); // Map<todoId, notificationElement>
 
 // DOM Elements
 const todoList = document.getElementById('todoList');
@@ -40,7 +39,6 @@ const emptyState = document.getElementById('emptyState');
 const todoModal = document.getElementById('todoModal');
 const todoForm = document.getElementById('todoForm');
 const loadingOverlay = document.getElementById('loadingOverlay');
-const notificationsContainer = document.getElementById('notificationsContainer');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -57,7 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         startAutoSync();
     }
     
-    // Initialize notification system
+    // Initialize notification system (after todos are loaded)
     initializeNotifications();
     startNotificationCheck();
 });
@@ -169,18 +167,12 @@ async function loadTodos(forceRefresh = false) {
         
         // Check for automatic completion
         checkAutoCompletion();
-        
-        // Update notifications after loading todos
-        updateNotifications();
     } catch (error) {
         console.error('Error loading todos:', error);
         // Fallback to localStorage
         const stored = localStorage.getItem('todos');
         todos = stored ? JSON.parse(stored) : [];
         console.log(`Fallback: Loaded ${todos.length} todos from localStorage`);
-        
-        // Update notifications even after fallback
-        updateNotifications();
     } finally {
         hideLoading();
     }
@@ -326,21 +318,6 @@ async function toggleTodoComplete(id) {
     todo.completed = !todo.completed;
     await saveTodo(todo);
     renderTodos();
-    
-    // Update notifications when task is completed
-    if (todo.completed) {
-        removeNotification(id);
-    } else {
-        // Show notification if task is uncompleted and it's today
-        const today = new Date().toISOString().split('T')[0];
-        const todoDate = todo.date ? todo.date.split('T')[0] : null;
-        if (todoDate === today) {
-            showTaskNotification(todo);
-        }
-    }
-    
-    // Update all notifications
-    updateNotifications();
 }
 
 function checkAutoCompletion() {
@@ -448,9 +425,6 @@ async function handleTodoSubmit(e) {
     await loadTodos();
     renderTodos();
     closeTodoModal();
-    
-    // Update notifications after saving
-    updateNotifications();
     } catch (error) {
         console.error('Error saving todo:', error);
         alert('Fehler beim Speichern der Aufgabe.');
@@ -576,9 +550,6 @@ function renderTodos() {
     });
     
     console.log(`Rendered ${filteredTodos.length} todos for ${selectedDate}`);
-    
-    // Update notifications after rendering
-    updateNotifications();
 }
 
 function createTodoElement(todo) {
@@ -1440,17 +1411,33 @@ function startAutoSync() {
 
 // Notification System
 async function initializeNotifications() {
-    // Request notification permission
-    if ('Notification' in window && Notification.permission === 'default') {
-        try {
-            await Notification.requestPermission();
-        } catch (error) {
-            console.error('Error requesting notification permission:', error);
+    // Request notification permission - ask immediately on first load
+    if ('Notification' in window) {
+        if (Notification.permission === 'default') {
+            try {
+                const permission = await Notification.requestPermission();
+                console.log('Notification permission:', permission);
+                if (permission === 'granted') {
+                    console.log('✅ Benachrichtigungen aktiviert!');
+                } else if (permission === 'denied') {
+                    console.warn('⚠️ Benachrichtigungen wurden abgelehnt. Bitte in den Browser-Einstellungen aktivieren.');
+                }
+            } catch (error) {
+                console.error('Error requesting notification permission:', error);
+            }
+        } else if (Notification.permission === 'granted') {
+            console.log('✅ Benachrichtigungen bereits aktiviert');
+        } else {
+            console.warn('⚠️ Benachrichtigungen wurden abgelehnt');
         }
+    } else {
+        console.log('Browser does not support notifications');
     }
     
     // Check if it's 8 AM or later today and show notifications if needed
-    checkAndShowDailyNotifications();
+    setTimeout(() => {
+        checkAndShowDailyNotifications();
+    }, 500);
 }
 
 function startNotificationCheck() {
@@ -1481,21 +1468,35 @@ function startNotificationCheck() {
     if (hour >= 8 && lastNotificationDate !== today) {
         // Wait a bit for todos to load, then show notifications
         setTimeout(() => {
+            console.log('Showing notifications on page load (after 8 AM)');
             checkAndShowDailyNotifications();
-        }, 1000);
+        }, 1500);
     }
     
     console.log('Notification check started (checking every minute for 8 AM)');
+    console.log('Current time:', now.toLocaleTimeString(), 'Hour:', hour, 'Last notification date:', lastNotificationDate);
 }
 
-function checkAndShowDailyNotifications() {
+function checkAndShowDailyNotifications(force = false) {
+    // Check if notifications are allowed
+    if (!('Notification' in window)) {
+        console.warn('Browser unterstützt keine Benachrichtigungen');
+        return;
+    }
+    
+    if (Notification.permission !== 'granted') {
+        console.warn('Benachrichtigungen nicht erlaubt. Aktueller Status:', Notification.permission);
+        if (Notification.permission === 'default') {
+            console.log('Bitte erlauben Sie Benachrichtigungen, wenn der Browser danach fragt.');
+        }
+        return;
+    }
+    
     const today = new Date().toISOString().split('T')[0];
     const lastNotificationDate = localStorage.getItem('lastNotificationDate');
     
-    // Only show notifications once per day
-    if (lastNotificationDate === today) {
-        // But still update existing notifications in case tasks changed
-        updateNotifications();
+    // Only show notifications once per day (unless forced)
+    if (!force && lastNotificationDate === today) {
         return;
     }
     
@@ -1508,143 +1509,81 @@ function checkAndShowDailyNotifications() {
     
     if (todayTodos.length === 0) {
         // No tasks for today - show a notification anyway
-        showNotification('Keine Aufgaben für heute', 'Du hast heute keine Aufgaben zu erledigen. Gute Arbeit!', null);
+        try {
+            const notification = new Notification('Keine Aufgaben für heute', {
+                body: 'Du hast heute keine Aufgaben zu erledigen. Gute Arbeit!',
+                icon: '/icon-192.png',
+                tag: 'daily-tasks-empty',
+                requireInteraction: false
+            });
+            
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+        } catch (error) {
+            console.error('Error showing browser notification:', error);
+        }
+        
+        if (!force) {
+            localStorage.setItem('lastNotificationDate', today);
+        }
+        return;
+    }
+    
+    // Show a separate browser notification for EACH task
+    todayTodos.forEach((todo, index) => {
+        setTimeout(() => {
+            const hours = parseFloat(todo.planned_hours) || 0;
+            const hoursText = hours > 0 ? `${hours.toFixed(1)} Stunden` : 'Keine Zeitangabe';
+            
+            try {
+                const notification = new Notification(`Aufgabe: ${todo.text}`, {
+                    body: `Geplante Zeit: ${hoursText}`,
+                    icon: '/icon-192.png',
+                    tag: `task-${todo.id}`,
+                    badge: '/icon-192.png',
+                    requireInteraction: false,
+                    silent: false
+                });
+                
+                notification.onclick = () => {
+                    window.focus();
+                    notification.close();
+                };
+                
+                console.log(`✅ Benachrichtigung gesendet für: ${todo.text}`);
+            } catch (error) {
+                console.error(`Error showing notification for task "${todo.text}":`, error);
+            }
+        }, index * 500); // Stagger notifications by 500ms
+    });
+    
+    // Mark that we've shown notifications today (only if not forced)
+    if (!force) {
         localStorage.setItem('lastNotificationDate', today);
+    }
+    
+    console.log(`📱 ${todayTodos.length} Benachrichtigung(en) gesendet`);
+}
+
+// Test function to manually trigger notifications
+function testNotifications() {
+    console.log('Testing notifications...');
+    if (!('Notification' in window)) {
+        alert('Ihr Browser unterstützt keine Benachrichtigungen.');
         return;
     }
     
-    // Show browser notification
-    if ('Notification' in window && Notification.permission === 'granted') {
-        const taskList = todayTodos.map(t => {
-            const hours = parseFloat(t.planned_hours) || 0;
-            return hours > 0 ? `${t.text} (${hours.toFixed(1)}h)` : t.text;
-        }).join(', ');
-        
-        const notification = new Notification('Deine Aufgaben für heute', {
-            body: `${todayTodos.length} Aufgabe(n): ${taskList}`,
-            icon: '/icon-192.png',
-            tag: 'daily-tasks',
-            requireInteraction: false
-        });
-        
-        notification.onclick = () => {
-            window.focus();
-            notification.close();
-        };
-    }
-    
-    // Show in-app notifications for each task
-    todayTodos.forEach(todo => {
-        showTaskNotification(todo);
-    });
-    
-    // Mark that we've shown notifications today
-    localStorage.setItem('lastNotificationDate', today);
-}
-
-function showTaskNotification(todo) {
-    // Don't show notification if task is already completed
-    if (todo.completed) {
-        removeNotification(todo.id);
+    if (Notification.permission !== 'granted') {
+        alert('Bitte erlauben Sie zuerst Benachrichtigungen. Die App wird Sie beim nächsten Laden danach fragen.');
         return;
     }
     
-    // Don't show duplicate notifications
-    if (activeNotifications.has(todo.id)) {
-        return;
-    }
-    
-    const hours = parseFloat(todo.planned_hours) || 0;
-    const hoursText = hours > 0 ? `${hours.toFixed(1)} Stunden` : 'Keine Zeitangabe';
-    
-    const notification = document.createElement('div');
-    notification.className = 'notification';
-    notification.dataset.todoId = todo.id;
-    
-    notification.innerHTML = `
-        <div class="notification-header">
-            <h3 class="notification-title">Aufgabe für heute</h3>
-            <button class="notification-close" onclick="removeNotification('${todo.id}')">&times;</button>
-        </div>
-        <div class="notification-content">
-            <div class="notification-task">
-                <div class="notification-task-name">${escapeHtml(todo.text)}</div>
-                <div class="notification-task-hours">Geplante Zeit: ${hoursText}</div>
-            </div>
-        </div>
-    `;
-    
-    notificationsContainer.appendChild(notification);
-    activeNotifications.set(todo.id, notification);
-}
-
-function showNotification(title, content, todoId = null) {
-    const notification = document.createElement('div');
-    notification.className = 'notification';
-    if (todoId) {
-        notification.dataset.todoId = todoId;
-    }
-    
-    notification.innerHTML = `
-        <div class="notification-header">
-            <h3 class="notification-title">${escapeHtml(title)}</h3>
-            <button class="notification-close" onclick="this.closest('.notification').remove()">&times;</button>
-        </div>
-        <div class="notification-content">${escapeHtml(content)}</div>
-    `;
-    
-    notificationsContainer.appendChild(notification);
-    
-    // Auto-remove after 10 seconds if no todoId
-    if (!todoId) {
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.classList.add('closing');
-                setTimeout(() => notification.remove(), 300);
-            }
-        }, 10000);
-    }
-}
-
-function removeNotification(todoId) {
-    const notification = activeNotifications.get(todoId);
-    if (notification) {
-        notification.classList.add('closing');
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.remove();
-            }
-            activeNotifications.delete(todoId);
-        }, 300);
-    }
-}
-
-function updateNotifications() {
-    // Remove notifications for completed tasks
-    activeNotifications.forEach((notification, todoId) => {
-        const todo = todos.find(t => t.id === todoId);
-        if (!todo || todo.completed) {
-            removeNotification(todoId);
-        }
-    });
-    
-    // Check if we need to show new notifications for today
-    const today = new Date().toISOString().split('T')[0];
-    const todayTodos = todos.filter(todo => {
-        if (!todo || !todo.date) return false;
-        const todoDate = todo.date.split('T')[0];
-        return todoDate === today && !todo.completed;
-    });
-    
-    // Show notifications for tasks that don't have one yet
-    todayTodos.forEach(todo => {
-        if (!activeNotifications.has(todo.id)) {
-            showTaskNotification(todo);
-        }
-    });
+    checkAndShowDailyNotifications(true);
 }
 
 // Make functions globally available for inline event handlers
 window.toggleTodoComplete = toggleTodoComplete;
 window.confirmDelete = confirmDelete;
-window.removeNotification = removeNotification;
+window.testNotifications = testNotifications;

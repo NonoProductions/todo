@@ -137,7 +137,8 @@ header h1:hover {
 }
 
 .calendar-import-btn,
-.calendar-settings-btn {
+.calendar-settings-btn,
+.notification-test-btn {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 12px;
@@ -153,7 +154,8 @@ header h1:hover {
 }
 
 .calendar-import-btn:hover,
-.calendar-settings-btn:hover {
+.calendar-settings-btn:hover,
+.notification-test-btn:hover {
     background: var(--bg-card);
     transform: scale(1.05);
 }

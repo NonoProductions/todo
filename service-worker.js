@@ -92,3 +92,32 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+// Notification Click Handler - Öffnet die App wenn auf Benachrichtigung geklickt wird
+self.addEventListener('notificationclick', (event) => {
+  console.log('Notification clicked:', event);
+  event.notification.close();
+  
+  // Öffne die App
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // Wenn App bereits offen ist, fokussiere sie
+        for (let i = 0; i < clientList.length; i++) {
+          const client = clientList[i];
+          if (client.url === '/' && 'focus' in client) {
+            return client.focus();
+          }
+        }
+        // Sonst öffne neue Window
+        if (clients.openWindow) {
+          return clients.openWindow('/');
+        }
+      })
+  );
+});
+
+// Notification Close Handler
+self.addEventListener('notificationclose', (event) => {
+  console.log('Notification closed:', event);
+});
+
