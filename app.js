@@ -103,15 +103,34 @@ function setupEventListeners() {
         if (e.target === todoModal) closeTodoModal();
     });
     
-    // Calendar Import
+    // Main Settings Modal
+    document.getElementById('mainSettingsBtn').addEventListener('click', openMainSettingsModal);
+    document.getElementById('closeMainSettingsModal').addEventListener('click', closeMainSettingsModal);
+    
+    // Close main settings modal on outside click
+    document.getElementById('mainSettingsModal').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('mainSettingsModal')) closeMainSettingsModal();
+    });
+    
+    // Settings menu items
+    document.getElementById('notificationSettingsBtn').addEventListener('click', () => {
+        closeMainSettingsModal();
+        testNotifications();
+    });
+    
+    document.getElementById('calendarSettingsBtn').addEventListener('click', () => {
+        closeMainSettingsModal();
+        openSettingsModal();
+    });
+    
     document.getElementById('calendarImportBtn').addEventListener('click', () => {
+        closeMainSettingsModal();
         document.getElementById('calendarFileInput').click();
     });
     
     document.getElementById('calendarFileInput').addEventListener('change', handleCalendarImport);
     
-    // Calendar Settings
-    document.getElementById('calendarSettingsBtn').addEventListener('click', openSettingsModal);
+    // Calendar Settings Modal
     document.getElementById('closeSettingsModal').addEventListener('click', closeSettingsModal);
     document.getElementById('cancelSettingsBtn').addEventListener('click', closeSettingsModal);
     document.getElementById('testConnectionBtn').addEventListener('click', testCalendarConnection);
@@ -1073,6 +1092,14 @@ function loadCalendarSettings() {
     const settings = getCalendarSettings();
     document.getElementById('calendarUrl').value = settings.url || '';
     document.getElementById('autoSyncEnabled').checked = settings.autoSyncEnabled !== false;
+}
+
+function openMainSettingsModal() {
+    document.getElementById('mainSettingsModal').classList.add('active');
+}
+
+function closeMainSettingsModal() {
+    document.getElementById('mainSettingsModal').classList.remove('active');
 }
 
 function openSettingsModal() {
