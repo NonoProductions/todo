@@ -31,6 +31,8 @@ let todos = [];
 let editingTodoId = null;
 let calendarSyncInterval = null;
 let selectedDate = new Date().toISOString().split('T')[0]; // Current selected date
+let notificationCheckInterval = null;
+let activeNotifications = new Map(); // Map<todoId, notificationElement>
 
 // DOM Elements
 const todoList = document.getElementById('todoList');
@@ -38,6 +40,7 @@ const emptyState = document.getElementById('emptyState');
 const todoModal = document.getElementById('todoModal');
 const todoForm = document.getElementById('todoForm');
 const loadingOverlay = document.getElementById('loadingOverlay');
+const notificationsContainer = document.getElementById('notificationsContainer');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -53,6 +56,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         await syncCalendarFromUrl();
         startAutoSync();
     }
+    
+    // Initialize notification system
+    initializeNotifications();
+    startNotificationCheck();
 });
 
 // Event Listeners Setup
@@ -162,12 +169,18 @@ async function loadTodos(forceRefresh = false) {
         
         // Check for automatic completion
         checkAutoCompletion();
+        
+        // Update notifications after loading todos
+        updateNotifications();
     } catch (error) {
         console.error('Error loading todos:', error);
         // Fallback to localStorage
         const stored = localStorage.getItem('todos');
         todos = stored ? JSON.parse(stored) : [];
         console.log(`Fallback: Loaded ${todos.length} todos from localStorage`);
+        
+        // Update notifications even after fallback
+        updateNotifications();
     } finally {
         hideLoading();
     }
@@ -313,6 +326,21 @@ async function toggleTodoComplete(id) {
     todo.completed = !todo.completed;
     await saveTodo(todo);
     renderTodos();
+    
+    // Update notifications when task is completed
+    if (todo.completed) {
+        removeNotification(id);
+    } else {
+        // Show notification if task is uncompleted and it's today
+        const today = new Date().toISOString().split('T')[0];
+        const todoDate = todo.date ? todo.date.split('T')[0] : null;
+        if (todoDate === today) {
+            showTaskNotification(todo);
+        }
+    }
+    
+    // Update all notifications
+    updateNotifications();
 }
 
 function checkAutoCompletion() {
@@ -417,9 +445,12 @@ async function handleTodoSubmit(e) {
     showLoading();
     try {
         await saveTodo(todoData);
-        await loadTodos();
-        renderTodos();
-        closeTodoModal();
+    await loadTodos();
+    renderTodos();
+    closeTodoModal();
+    
+    // Update notifications after saving
+    updateNotifications();
     } catch (error) {
         console.error('Error saving todo:', error);
         alert('Fehler beim Speichern der Aufgabe.');
@@ -545,6 +576,9 @@ function renderTodos() {
     });
     
     console.log(`Rendered ${filteredTodos.length} todos for ${selectedDate}`);
+    
+    // Update notifications after rendering
+    updateNotifications();
 }
 
 function createTodoElement(todo) {
@@ -1404,6 +1438,213 @@ function startAutoSync() {
     console.log('Auto-sync started (every 5 minutes)');
 }
 
+// Notification System
+async function initializeNotifications() {
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+        try {
+            await Notification.requestPermission();
+        } catch (error) {
+            console.error('Error requesting notification permission:', error);
+        }
+    }
+    
+    // Check if it's 8 AM or later today and show notifications if needed
+    checkAndShowDailyNotifications();
+}
+
+function startNotificationCheck() {
+    // Clear existing interval
+    if (notificationCheckInterval) {
+        clearInterval(notificationCheckInterval);
+    }
+    
+    // Check every minute if it's 8 AM
+    notificationCheckInterval = setInterval(() => {
+        const now = new Date();
+        const hour = now.getHours();
+        const minute = now.getMinutes();
+        
+        // Check if it's exactly 8:00 AM
+        if (hour === 8 && minute === 0) {
+            checkAndShowDailyNotifications();
+        }
+    }, 60 * 1000); // Check every minute
+    
+    // Also check immediately on load if it's 8 AM or later
+    const now = new Date();
+    const hour = now.getHours();
+    const today = new Date().toISOString().split('T')[0];
+    const lastNotificationDate = localStorage.getItem('lastNotificationDate');
+    
+    // If it's 8 AM or later today and we haven't shown notifications yet, show them
+    if (hour >= 8 && lastNotificationDate !== today) {
+        // Wait a bit for todos to load, then show notifications
+        setTimeout(() => {
+            checkAndShowDailyNotifications();
+        }, 1000);
+    }
+    
+    console.log('Notification check started (checking every minute for 8 AM)');
+}
+
+function checkAndShowDailyNotifications() {
+    const today = new Date().toISOString().split('T')[0];
+    const lastNotificationDate = localStorage.getItem('lastNotificationDate');
+    
+    // Only show notifications once per day
+    if (lastNotificationDate === today) {
+        // But still update existing notifications in case tasks changed
+        updateNotifications();
+        return;
+    }
+    
+    // Get all incomplete tasks for today
+    const todayTodos = todos.filter(todo => {
+        if (!todo || !todo.date) return false;
+        const todoDate = todo.date.split('T')[0];
+        return todoDate === today && !todo.completed;
+    });
+    
+    if (todayTodos.length === 0) {
+        // No tasks for today - show a notification anyway
+        showNotification('Keine Aufgaben für heute', 'Du hast heute keine Aufgaben zu erledigen. Gute Arbeit!', null);
+        localStorage.setItem('lastNotificationDate', today);
+        return;
+    }
+    
+    // Show browser notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+        const taskList = todayTodos.map(t => {
+            const hours = parseFloat(t.planned_hours) || 0;
+            return hours > 0 ? `${t.text} (${hours.toFixed(1)}h)` : t.text;
+        }).join(', ');
+        
+        const notification = new Notification('Deine Aufgaben für heute', {
+            body: `${todayTodos.length} Aufgabe(n): ${taskList}`,
+            icon: '/icon-192.png',
+            tag: 'daily-tasks',
+            requireInteraction: false
+        });
+        
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+    }
+    
+    // Show in-app notifications for each task
+    todayTodos.forEach(todo => {
+        showTaskNotification(todo);
+    });
+    
+    // Mark that we've shown notifications today
+    localStorage.setItem('lastNotificationDate', today);
+}
+
+function showTaskNotification(todo) {
+    // Don't show notification if task is already completed
+    if (todo.completed) {
+        removeNotification(todo.id);
+        return;
+    }
+    
+    // Don't show duplicate notifications
+    if (activeNotifications.has(todo.id)) {
+        return;
+    }
+    
+    const hours = parseFloat(todo.planned_hours) || 0;
+    const hoursText = hours > 0 ? `${hours.toFixed(1)} Stunden` : 'Keine Zeitangabe';
+    
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    notification.dataset.todoId = todo.id;
+    
+    notification.innerHTML = `
+        <div class="notification-header">
+            <h3 class="notification-title">Aufgabe für heute</h3>
+            <button class="notification-close" onclick="removeNotification('${todo.id}')">&times;</button>
+        </div>
+        <div class="notification-content">
+            <div class="notification-task">
+                <div class="notification-task-name">${escapeHtml(todo.text)}</div>
+                <div class="notification-task-hours">Geplante Zeit: ${hoursText}</div>
+            </div>
+        </div>
+    `;
+    
+    notificationsContainer.appendChild(notification);
+    activeNotifications.set(todo.id, notification);
+}
+
+function showNotification(title, content, todoId = null) {
+    const notification = document.createElement('div');
+    notification.className = 'notification';
+    if (todoId) {
+        notification.dataset.todoId = todoId;
+    }
+    
+    notification.innerHTML = `
+        <div class="notification-header">
+            <h3 class="notification-title">${escapeHtml(title)}</h3>
+            <button class="notification-close" onclick="this.closest('.notification').remove()">&times;</button>
+        </div>
+        <div class="notification-content">${escapeHtml(content)}</div>
+    `;
+    
+    notificationsContainer.appendChild(notification);
+    
+    // Auto-remove after 10 seconds if no todoId
+    if (!todoId) {
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.classList.add('closing');
+                setTimeout(() => notification.remove(), 300);
+            }
+        }, 10000);
+    }
+}
+
+function removeNotification(todoId) {
+    const notification = activeNotifications.get(todoId);
+    if (notification) {
+        notification.classList.add('closing');
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+            activeNotifications.delete(todoId);
+        }, 300);
+    }
+}
+
+function updateNotifications() {
+    // Remove notifications for completed tasks
+    activeNotifications.forEach((notification, todoId) => {
+        const todo = todos.find(t => t.id === todoId);
+        if (!todo || todo.completed) {
+            removeNotification(todoId);
+        }
+    });
+    
+    // Check if we need to show new notifications for today
+    const today = new Date().toISOString().split('T')[0];
+    const todayTodos = todos.filter(todo => {
+        if (!todo || !todo.date) return false;
+        const todoDate = todo.date.split('T')[0];
+        return todoDate === today && !todo.completed;
+    });
+    
+    // Show notifications for tasks that don't have one yet
+    todayTodos.forEach(todo => {
+        if (!activeNotifications.has(todo.id)) {
+            showTaskNotification(todo);
+        }
+    });
+}
+
 // Make functions globally available for inline event handlers
 window.toggleTodoComplete = toggleTodoComplete;
 window.confirmDelete = confirmDelete;
+window.removeNotification = removeNotification;
