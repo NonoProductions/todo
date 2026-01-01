@@ -32,6 +32,7 @@ let editingTodoId = null;
 let calendarSyncInterval = null;
 let selectedDate = new Date().toISOString().split('T')[0]; // Current selected date
 let notificationCheckInterval = null;
+let autoRefreshInterval = null;
 
 // DOM Elements
 const todoList = document.getElementById('todoList');
@@ -58,6 +59,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize notification system (after todos are loaded)
     initializeNotifications();
     startNotificationCheck();
+    
+    // Start auto-refresh for todos
+    startAutoRefresh();
+    
+    // Setup service worker update check
+    setupServiceWorkerUpdates();
 });
 
 // Event Listeners Setup
@@ -1411,33 +1418,22 @@ function startAutoSync() {
 
 // Notification System
 async function initializeNotifications() {
-    // Request notification permission - ask immediately on first load
+    // Check notification permission status (don't request automatically - browsers require user interaction)
     if ('Notification' in window) {
-        if (Notification.permission === 'default') {
-            try {
-                const permission = await Notification.requestPermission();
-                console.log('Notification permission:', permission);
-                if (permission === 'granted') {
-                    console.log('✅ Benachrichtigungen aktiviert!');
-                } else if (permission === 'denied') {
-                    console.warn('⚠️ Benachrichtigungen wurden abgelehnt. Bitte in den Browser-Einstellungen aktivieren.');
-                }
-            } catch (error) {
-                console.error('Error requesting notification permission:', error);
-            }
-        } else if (Notification.permission === 'granted') {
+        if (Notification.permission === 'granted') {
             console.log('✅ Benachrichtigungen bereits aktiviert');
+            // Check if it's 8 AM or later today and show notifications if needed
+            setTimeout(() => {
+                checkAndShowDailyNotifications();
+            }, 500);
+        } else if (Notification.permission === 'default') {
+            console.log('ℹ️ Benachrichtigungen noch nicht aktiviert. Klicken Sie auf das Glocken-Icon, um sie zu aktivieren.');
         } else {
-            console.warn('⚠️ Benachrichtigungen wurden abgelehnt');
+            console.warn('⚠️ Benachrichtigungen wurden abgelehnt. Bitte in den Browser-Einstellungen aktivieren.');
         }
     } else {
         console.log('Browser does not support notifications');
     }
-    
-    // Check if it's 8 AM or later today and show notifications if needed
-    setTimeout(() => {
-        checkAndShowDailyNotifications();
-    }, 500);
 }
 
 function startNotificationCheck() {
@@ -1567,23 +1563,159 @@ function checkAndShowDailyNotifications(force = false) {
     console.log(`📱 ${todayTodos.length} Benachrichtigung(en) gesendet`);
 }
 
+// Request notification permission manually
+async function requestNotificationPermission() {
+    if (!('Notification' in window)) {
+        alert('Ihr Browser unterstützt keine Benachrichtigungen.');
+        return false;
+    }
+    
+    if (Notification.permission === 'granted') {
+        console.log('✅ Benachrichtigungen bereits aktiviert');
+        return true;
+    }
+    
+    if (Notification.permission === 'denied') {
+        alert('Benachrichtigungen wurden abgelehnt. Bitte aktivieren Sie sie in den Browser-Einstellungen:\n\nChrome: Einstellungen → Datenschutz und Sicherheit → Website-Einstellungen → Benachrichtigungen\nSafari: Einstellungen → Websites → Benachrichtigungen');
+        return false;
+    }
+    
+    // Request permission
+    try {
+        const permission = await Notification.requestPermission();
+        console.log('Notification permission result:', permission);
+        
+        if (permission === 'granted') {
+            console.log('✅ Benachrichtigungen aktiviert!');
+            alert('✅ Benachrichtigungen aktiviert! Sie erhalten jetzt täglich um 8 Uhr Benachrichtigungen für Ihre Aufgaben.');
+            return true;
+        } else if (permission === 'denied') {
+            alert('Benachrichtigungen wurden abgelehnt. Sie können sie später in den Browser-Einstellungen aktivieren.');
+            return false;
+        } else {
+            console.log('Permission request was dismissed');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error requesting notification permission:', error);
+        alert('Fehler beim Anfordern der Benachrichtigungs-Erlaubnis: ' + error.message);
+        return false;
+    }
+}
+
 // Test function to manually trigger notifications
-function testNotifications() {
+async function testNotifications() {
     console.log('Testing notifications...');
+    
     if (!('Notification' in window)) {
         alert('Ihr Browser unterstützt keine Benachrichtigungen.');
         return;
     }
     
+    // Request permission if not granted
     if (Notification.permission !== 'granted') {
-        alert('Bitte erlauben Sie zuerst Benachrichtigungen. Die App wird Sie beim nächsten Laden danach fragen.');
-        return;
+        const granted = await requestNotificationPermission();
+        if (!granted) {
+            return;
+        }
     }
     
+    // Now test notifications
     checkAndShowDailyNotifications(true);
+}
+
+// Auto-Refresh System
+function startAutoRefresh() {
+    // Clear existing interval
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+    
+    // Refresh todos every 15 seconds
+    autoRefreshInterval = setInterval(async () => {
+        // Only refresh if:
+        // 1. Page is visible (not in background tab)
+        // 2. No modal is open
+        // 3. Not currently editing
+        if (document.visibilityState === 'visible' && 
+            !todoModal.classList.contains('active') && 
+            !document.getElementById('settingsModal').classList.contains('active') &&
+            editingTodoId === null) {
+            console.log('Auto-refreshing todos...');
+            try {
+                await loadTodos(true); // Force refresh
+                renderTodos();
+            } catch (error) {
+                console.error('Error during auto-refresh:', error);
+            }
+        }
+    }, 15 * 1000); // Every 15 seconds
+    
+    console.log('Auto-refresh started (every 15 seconds)');
+    
+    // Also refresh when page becomes visible again
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible' && 
+            !todoModal.classList.contains('active') && 
+            !document.getElementById('settingsModal').classList.contains('active')) {
+            console.log('Page became visible, refreshing todos...');
+            try {
+                await loadTodos(true);
+                renderTodos();
+            } catch (error) {
+                console.error('Error refreshing on visibility change:', error);
+            }
+        }
+    });
+    
+}
+
+// Service Worker Update System
+function setupServiceWorkerUpdates() {
+    if ('serviceWorker' in navigator) {
+        // Check for updates every 5 minutes
+        setInterval(() => {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+                registrations.forEach(registration => {
+                    registration.update();
+                });
+            });
+        }, 5 * 60 * 1000); // Every 5 minutes
+        
+        // Listen for service worker updates
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            console.log('Service Worker updated, reloading page...');
+            // Reload page to get new version
+            window.location.reload();
+        });
+        
+        // Check for updates on page load
+        navigator.serviceWorker.getRegistration().then(registration => {
+            if (registration) {
+                registration.addEventListener('updatefound', () => {
+                    console.log('New service worker found, waiting for activation...');
+                    const newWorker = registration.installing;
+                    
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'activated') {
+                            console.log('New service worker activated, reloading page...');
+                            // Ask user if they want to reload
+                            if (confirm('Eine neue Version der App ist verfügbar. Seite neu laden?')) {
+                                window.location.reload();
+                            }
+                        }
+                    });
+                });
+                
+                // Check for updates immediately
+                registration.update();
+            }
+        });
+    }
 }
 
 // Make functions globally available for inline event handlers
 window.toggleTodoComplete = toggleTodoComplete;
 window.confirmDelete = confirmDelete;
 window.testNotifications = testNotifications;
+window.requestNotificationPermission = requestNotificationPermission;

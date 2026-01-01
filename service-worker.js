@@ -1,5 +1,5 @@
 // Service Worker für PWA
-const CACHE_NAME = 'todo-app-v1';
+const CACHE_NAME = 'todo-app-v2'; // Increment version to force update
 const urlsToCache = [
   '/',
   '/index.html',
@@ -10,6 +10,7 @@ const urlsToCache = [
 
 // Installation - Cache wichtige Dateien
 self.addEventListener('install', (event) => {
+  console.log('Service Worker: Installing new version...');
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -20,11 +21,13 @@ self.addEventListener('install', (event) => {
         console.error('Service Worker: Fehler beim Caching:', error);
       })
   );
+  // Skip waiting to activate immediately
   self.skipWaiting();
 });
 
 // Aktivierung - Alte Caches löschen
 self.addEventListener('activate', (event) => {
+  console.log('Service Worker: Activating new version...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -35,9 +38,11 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
+    }).then(() => {
+      // Claim all clients immediately
+      return self.clients.claim();
     })
   );
-  return self.clients.claim();
 });
 
 // Fetch - Strategie: Cache First, dann Network
