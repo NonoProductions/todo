@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo Widget</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            padding: 16px;
+            min-height: 100vh;
+        }
+        
+        .widget-container {
+            max-width: 100%;
+        }
+        
+        .widget-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .widget-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #4a9eff;
+        }
+        
+        .widget-date {
+            font-size: 14px;
+            color: #b0b0b0;
+        }
+        
+        .todo-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .todo-item {
+            background: #252525;
+            border-radius: 12px;
+            padding: 12px;
+            border-left: 3px solid #4a9eff;
+        }
+        
+        .todo-item.completed {
+            opacity: 0.6;
+            border-left-color: #6bcf7f;
+        }
+        
+        .todo-text {
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        
+        .todo-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+            color: #b0b0b0;
+        }
+        
+        .todo-hours {
+            color: #4a9eff;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 32px;
+            color: #808080;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #252525;
+            border-radius: 12px;
+        }
+        
+        .stat-item {
+            flex: 1;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #4a9eff;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #b0b0b0;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="widget-container">
+        <div class="widget-header">
+            <div class="widget-title">Meine Aufgaben</div>
+            <div class="widget-date" id="widgetDate"></div>
+        </div>
+        
+        <div class="stats" id="stats" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-value" id="totalTasks">0</div>
+                <div class="stat-label">Aufgaben</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="completedTasks">0</div>
+                <div class="stat-label">Erledigt</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="remainingHours">0h</div>
+                <div class="stat-label">Verbleibend</div>
+            </div>
+        </div>
+        
+        <div class="todo-list" id="todoList">
+            <div class="empty-state">Lade Aufgaben...</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // Supabase Configuration (gleiche wie in app.js)
+        const SUPABASE_URL = 'https://yzdcfxylvymaybgoetjn.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZGNmeHlsdnltYXliZ29ldGpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwOTg0NzgsImV4cCI6MjA4MjY3NDQ3OH0.ek5V6ii7cAU5SMk_tIDyYZbWctXvmvEzRCvNYl3C2SE';
+        
+        let supabaseClient = null;
+        
+        // Initialize Supabase after library loads
+        function initializeSupabase() {
+            if (typeof supabase !== 'undefined' && supabase.createClient) {
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } else {
+                // Wait for library to load
+                setTimeout(initializeSupabase, 100);
+            }
+        }
+        
+        // Start initialization
+        initializeSupabase();
+        
+        // Update date display
+        function updateDateDisplay() {
+            const today = new Date();
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('widgetDate').textContent = today.toLocaleDateString('de-DE', options);
+        }
+        
+        // Load todos
+        async function loadTodos() {
+            const today = new Date().toISOString().split('T')[0];
+            let todos = [];
+            
+            try {
+                if (supabaseClient) {
+                    const { data, error } = await supabaseClient
+                        .from('todos')
+                        .select('*')
+                        .eq('date', today)
+                        .order('completed', { ascending: true })
+                        .order('planned_hours', { ascending: false });
+                    
+                    if (error) throw error;
+                    todos = data || [];
+                } else {
+                    // Fallback to localStorage
+                    const stored = localStorage.getItem('todos');
+                    if (stored) {
+                        const allTodos = JSON.parse(stored);
+                        todos = allTodos.filter(t => {
+                            const todoDate = t.date ? t.date.split('T')[0] : null;
+                            return todoDate === today;
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading todos:', error);
+                // Fallback to localStorage
+                const stored = localStorage.getItem('todos');
+                if (stored) {
+                    const allTodos = JSON.parse(stored);
+                    todos = allTodos.filter(t => {
+                        const todoDate = t.date ? t.date.split('T')[0] : null;
+                        return todoDate === today;
+                    });
+                }
+            }
+            
+            renderTodos(todos);
+            updateStats(todos);
+        }
+        
+        // Render todos
+        function renderTodos(todos) {
+            const todoList = document.getElementById('todoList');
+            
+            if (todos.length === 0) {
+                todoList.innerHTML = '<div class="empty-state">Keine Aufgaben für heute</div>';
+                return;
+            }
+            
+            todoList.innerHTML = todos.map(todo => {
+                const plannedHours = parseFloat(todo.planned_hours) || 0;
+                const usedHours = parseFloat(todo.used_hours) || 0;
+                const hoursText = plannedHours > 0 ? `${usedHours.toFixed(1)}h / ${plannedHours.toFixed(1)}h` : '';
+                
+                return `
+                    <div class="todo-item ${todo.completed ? 'completed' : ''}">
+                        <div class="todo-text">${escapeHtml(todo.text)}</div>
+                        <div class="todo-meta">
+                            ${hoursText ? `<span class="todo-hours">${hoursText}</span>` : ''}
+                            ${todo.completed ? '<span>✓ Erledigt</span>' : '<span>⏳ Offen</span>'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Update statistics
+        function updateStats(todos) {
+            const total = todos.length;
+            const completed = todos.filter(t => t.completed).length;
+            const remaining = todos
+                .filter(t => !t.completed)
+                .reduce((sum, t) => sum + (parseFloat(t.planned_hours) || 0) - (parseFloat(t.used_hours) || 0), 0);
+            
+            document.getElementById('totalTasks').textContent = total;
+            document.getElementById('completedTasks').textContent = completed;
+            document.getElementById('remainingHours').textContent = remaining > 0 ? `${remaining.toFixed(1)}h` : '0h';
+            document.getElementById('stats').style.display = 'flex';
+        }
+        
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Initialize after Supabase is ready
+        function initialize() {
+            updateDateDisplay();
+            loadTodos();
+            
+            // Auto-refresh every 30 seconds
+            setInterval(loadTodos, 30000);
+        }
+        
+        // Wait for Supabase to load
+        if (typeof supabase !== 'undefined') {
+            initialize();
+        } else {
+            window.addEventListener('load', () => {
+                setTimeout(initialize, 500);
+            });
+        }
+    </script>
+</body>
+</html>
+

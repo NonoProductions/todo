@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo Widget API</title>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // Supabase Configuration
+        const SUPABASE_URL = 'https://yzdcfxylvymaybgoetjn.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZGNmeHlsdnltYXliZ29ldGpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwOTg0NzgsImV4cCI6MjA4MjY3NDQ3OH0.ek5V6ii7cAU5SMk_tIDyYZbWctXvmvEzRCvNYl3C2SE';
+        
+        let supabaseClient = null;
+        
+        // Initialize Supabase after library loads
+        function initializeSupabase() {
+            if (typeof supabase !== 'undefined' && supabase.createClient) {
+                supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } else {
+                setTimeout(initializeSupabase, 100);
+            }
+        }
+        
+        initializeSupabase();
+        
+        // Get date parameter from URL or use today
+        function getDateFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const dateParam = params.get('date');
+            if (dateParam) {
+                return dateParam;
+            }
+            return new Date().toISOString().split('T')[0];
+        }
+        
+        // Load todos and return JSON
+        async function loadTodosJSON() {
+            const date = getDateFromUrl();
+            let todos = [];
+            
+            try {
+                if (supabaseClient) {
+                    const { data, error } = await supabaseClient
+                        .from('todos')
+                        .select('*')
+                        .eq('date', date)
+                        .order('completed', { ascending: true })
+                        .order('planned_hours', { ascending: false });
+                    
+                    if (error) throw error;
+                    todos = data || [];
+                } else {
+                    // Fallback to localStorage
+                    const stored = localStorage.getItem('todos');
+                    if (stored) {
+                        const allTodos = JSON.parse(stored);
+                        todos = allTodos.filter(t => {
+                            const todoDate = t.date ? t.date.split('T')[0] : null;
+                            return todoDate === date;
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading todos:', error);
+                // Fallback to localStorage
+                const stored = localStorage.getItem('todos');
+                if (stored) {
+                    const allTodos = JSON.parse(stored);
+                    todos = allTodos.filter(t => {
+                        const todoDate = t.date ? t.date.split('T')[0] : null;
+                        return todoDate === date;
+                    });
+                }
+            }
+            
+            // Calculate statistics
+            const total = todos.length;
+            const completed = todos.filter(t => t.completed).length;
+            const remaining = todos
+                .filter(t => !t.completed)
+                .reduce((sum, t) => sum + (parseFloat(t.planned_hours) || 0) - (parseFloat(t.used_hours) || 0), 0);
+            
+            // Return JSON response
+            const response = {
+                date: date,
+                total: total,
+                completed: completed,
+                remaining: remaining,
+                todos: todos.map(todo => ({
+                    id: todo.id,
+                    text: todo.text,
+                    completed: todo.completed || false,
+                    planned_hours: parseFloat(todo.planned_hours) || 0,
+                    used_hours: parseFloat(todo.used_hours) || 0
+                }))
+            };
+            
+            // Set content type and return JSON
+            document.body.innerHTML = '<pre>' + JSON.stringify(response, null, 2) + '</pre>';
+            
+            // Also set as text for Shortcuts to read
+            return response;
+        }
+        
+        // Initialize after Supabase is ready
+        function initialize() {
+            loadTodosJSON();
+        }
+        
+        // Wait for Supabase to load
+        if (typeof supabase !== 'undefined') {
+            initialize();
+        } else {
+            window.addEventListener('load', () => {
+                setTimeout(initialize, 500);
+            });
+        }
+    </script>
+</body>
+</html>
+
