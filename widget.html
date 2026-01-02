@@ -15,67 +15,115 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1a1a1a;
             color: #ffffff;
-            padding: 16px;
+            padding: 0;
+            margin: 0;
             min-height: 100vh;
+            width: 100%;
+            overflow: hidden;
         }
         
         .widget-container {
-            max-width: 100%;
+            width: 100%;
+            height: 100vh;
+            padding: 8px 16px 16px 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: flex-start;
         }
         
         .widget-card {
-            background: #2d2d2d;
-            border: 1px solid #4a4a4a;
-            border-radius: 12px;
-            padding: 16px;
+            background: transparent;
+            border: none;
+            border-radius: 0;
+            padding: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: flex-start;
         }
         
         .widget-header {
-            margin-bottom: 12px;
+            margin-bottom: 8px;
+            width: 100%;
+            display: flex;
+            align-items: flex-start;
+            justify-content: flex-start;
         }
         
         .widget-title {
             font-size: 20px;
             font-weight: 700;
             color: #4a9eff;
-            margin-bottom: 4px;
+            margin-bottom: 12px;
+            text-align: left;
+            width: 100%;
+        }
+        
+        .widget-tasks {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 12px;
+            width: 100%;
+            align-items: flex-start;
         }
         
         .widget-task-section {
             display: flex;
             align-items: center;
-            gap: 8px;
-            margin-bottom: 12px;
+            gap: 10px;
+            width: 100%;
+            justify-content: flex-start;
         }
         
         .task-circle {
-            width: 8px;
-            height: 8px;
-            background: #4a9eff;
+            width: 20px;
+            height: 20px;
+            background: #3a3a3a;
+            border: 1.5px solid #4a9eff;
             border-radius: 50%;
             flex-shrink: 0;
+            transition: background 0.2s ease;
+        }
+        
+        .task-circle.completed {
+            background: #4a9eff;
         }
         
         .task-label {
             font-size: 14px;
-            color: #b0b0b0;
+            color: #ffffff;
             font-weight: 400;
+            flex: 1;
+            text-align: left;
+        }
+        
+        .task-label.completed {
+            color: #808080;
+            text-decoration: line-through;
         }
         
         .hours-display {
             font-size: 13px;
-            color: #b0b0b0;
-            margin-bottom: 12px;
+            color: #ffffff;
+            margin-bottom: 8px;
+            text-align: left;
+            width: 100%;
         }
         
         .progress-section {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            width: 100%;
+            justify-content: flex-start;
         }
         
         .progress-bar-container {
-            flex: 1;
+            flex: 0 1 auto;
+            width: 140px;
             height: 2px;
             background: #4a4a4a;
             border-radius: 1px;
@@ -92,8 +140,9 @@
         
         .progress-percent {
             font-size: 13px;
-            color: #b0b0b0;
+            color: #ffffff;
             min-width: 40px;
+            text-align: left;
         }
         
         .empty-state {
@@ -110,9 +159,8 @@
                 <div class="widget-title">HEUTE</div>
             </div>
             
-            <div class="widget-task-section">
-                <div class="task-circle"></div>
-                <div class="task-label">AUFGABE</div>
+            <div class="widget-tasks" id="tasksList">
+                <!-- Tasks will be dynamically inserted here -->
             </div>
             
             <div class="hours-display" id="hoursDisplay">0,0H / 0,0H</div>
@@ -161,6 +209,16 @@
                         .order('completed', { ascending: true })
                         .order('planned_hours', { ascending: false });
                     
+                    // Zusätzliche Sortierung: unerledigte zuerst, dann nach geplanten Stunden
+                    if (data) {
+                        data.sort((a, b) => {
+                            if (a.completed !== b.completed) {
+                                return a.completed ? 1 : -1;
+                            }
+                            return (parseFloat(b.planned_hours) || 0) - (parseFloat(a.planned_hours) || 0);
+                        });
+                    }
+                    
                     if (error) throw error;
                     todos = data || [];
                 } else {
@@ -191,9 +249,46 @@
             updateStats(todos);
         }
         
-        // Render todos (nicht mehr benötigt für das neue Design)
+        // Render todos
         function renderTodos(todos) {
-            // Das neue Design zeigt nur die Zusammenfassung, keine einzelnen Todos
+            const tasksList = document.getElementById('tasksList');
+            tasksList.innerHTML = '';
+            
+            // Zeige maximal 5 Aufgaben
+            const maxTasks = 5;
+            const tasksToShow = todos.slice(0, maxTasks);
+            
+            if (tasksToShow.length === 0) {
+                const emptyTask = document.createElement('div');
+                emptyTask.className = 'widget-task-section';
+                emptyTask.innerHTML = `
+                    <div class="task-circle"></div>
+                    <div class="task-label">Keine Aufgaben für heute</div>
+                `;
+                tasksList.appendChild(emptyTask);
+            } else {
+                tasksToShow.forEach(todo => {
+                    const taskSection = document.createElement('div');
+                    taskSection.className = 'widget-task-section';
+                    
+                    const circle = document.createElement('div');
+                    circle.className = 'task-circle';
+                    if (todo.completed) {
+                        circle.classList.add('completed');
+                    }
+                    
+                    const label = document.createElement('div');
+                    label.className = 'task-label';
+                    if (todo.completed) {
+                        label.classList.add('completed');
+                    }
+                    label.textContent = todo.text || 'Unbenannte Aufgabe';
+                    
+                    taskSection.appendChild(circle);
+                    taskSection.appendChild(label);
+                    tasksList.appendChild(taskSection);
+                });
+            }
         }
         
         // Update statistics

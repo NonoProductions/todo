@@ -106,82 +106,98 @@ function createLargeWidget(widget, data) {
 }
 
 function createMainWidget(widget, data) {
-  // Hauptcontainer mit Karte
-  const cardStack = widget.addStack();
-  cardStack.layoutHorizontally();
-  cardStack.setPadding(16, 16, 16, 16);
-  cardStack.backgroundColor = new Color(COLORS.card);
-  cardStack.cornerRadius = 12;
-  cardStack.borderWidth = 1;
-  cardStack.borderColor = new Color(COLORS.border);
+  // Direkt im Widget ohne Karte - fullscreen, nach oben verschoben
+  widget.setPadding(8, 16, 16, 16); // Weniger Padding oben
   
-  const contentStack = cardStack.addStack();
+  const contentStack = widget.addStack();
   contentStack.layoutVertically();
-  contentStack.spacing = 8;
+  contentStack.spacing = 12;
   
   // "HEUTE" Text oben links
   const heuteText = contentStack.addText('HEUTE');
   heuteText.font = Font.boldSystemFont(20);
   heuteText.textColor = new Color(COLORS.primary);
+  heuteText.leftAlignText(); // Linksbündig
   
-  // "AUFGABE" mit blauem Kreis
-  const aufgabeStack = contentStack.addStack();
-  aufgabeStack.layoutHorizontally();
-  aufgabeStack.spacing = 6;
-  aufgabeStack.centerAlignContent();
+  // Aufgabenliste - zeige alle Aufgaben für heute
+  const todayTodos = data.todos || [];
+  const maxTasks = 5; // Maximal 5 Aufgaben anzeigen
   
-  // Blauer Kreis
-  const circleStack = aufgabeStack.addStack();
-  circleStack.size = new Size(8, 8);
-  circleStack.backgroundColor = new Color(COLORS.primary);
-  circleStack.cornerRadius = 4;
+  for (let i = 0; i < Math.min(todayTodos.length, maxTasks); i++) {
+    const todo = todayTodos[i];
+    
+    // Aufgabe mit Kreis
+    const aufgabeStack = contentStack.addStack();
+    aufgabeStack.layoutHorizontally();
+    aufgabeStack.spacing = 10;
+    
+    // Kreis (Checkbox-Stil: grauer Hintergrund mit blauem Rand)
+    const circleStack = aufgabeStack.addStack();
+    circleStack.size = new Size(20, 20);
+    circleStack.backgroundColor = new Color('#3a3a3a'); // Grauer Hintergrund
+    circleStack.cornerRadius = 10;
+    circleStack.borderWidth = 1.5;
+    circleStack.borderColor = new Color(COLORS.primary); // Blauer Rand
+    
+    // Wenn erledigt, Kreis ausfüllen
+    if (todo.completed) {
+      circleStack.backgroundColor = new Color(COLORS.primary);
+    }
+    
+    // Aufgaben-Text
+    const aufgabeText = aufgabeStack.addText(todo.text || 'Unbenannte Aufgabe');
+    aufgabeText.font = Font.regularSystemFont(14);
+    aufgabeText.textColor = todo.completed ? new Color(COLORS.textMuted) : new Color(COLORS.text);
+    aufgabeText.leftAlignText(); // Linksbündig
+    if (todo.completed) {
+      aufgabeText.strikethrough = true;
+    }
+  }
   
-  // "AUFGABE" Text
-  const aufgabeText = aufgabeStack.addText('AUFGABE');
-  aufgabeText.font = Font.regularSystemFont(14);
-  aufgabeText.textColor = new Color(COLORS.textSecondary);
-  
-  // Stunden-Anzeige "2,9H / 4H" mit Progress Bar in einer Zeile
-  const hoursProgressStack = contentStack.addStack();
-  hoursProgressStack.layoutHorizontally();
-  hoursProgressStack.spacing = 8;
-  hoursProgressStack.centerAlignContent();
-  
+  // Stunden-Anzeige "2,9H / 4H" - unter den Aufgaben
+  const hoursText = contentStack.addText('');
   const usedHours = data.totalUsed.toFixed(1).replace('.', ',');
   const plannedHours = data.totalPlanned.toFixed(1).replace('.', ',');
-  const hoursText = hoursProgressStack.addText(`${usedHours}H / ${plannedHours}H`);
+  hoursText.text = `${usedHours}H / ${plannedHours}H`;
   hoursText.font = Font.regularSystemFont(13);
-  hoursText.textColor = new Color(COLORS.textSecondary);
+  hoursText.textColor = new Color(COLORS.text);
+  hoursText.leftAlignText(); // Linksbündig
+  
+  // Progress Bar und Prozentanzeige in einer Zeile - unter der Stunden-Anzeige
+  const progressStack = contentStack.addStack();
+  progressStack.layoutHorizontally();
+  progressStack.spacing = 10;
   
   // Berechne Fortschritt
   const progress = data.totalPlanned > 0 ? Math.min(data.totalUsed / data.totalPlanned, 1) : 0;
   const percent = Math.round(progress * 100);
   
   // Progress Bar mit Canvas zeichnen
-  const barWidth = 100;
+  const barWidth = 140;
   const barHeight = 2;
   const canvas = new DrawContext();
   canvas.size = new Size(barWidth, barHeight);
   
   // Hintergrund
   canvas.setFillColor(new Color(COLORS.border));
-  canvas.fillRoundedRect(new Rect(0, 0, barWidth, barHeight), 1);
+  canvas.fillRect(new Rect(0, 0, barWidth, barHeight));
   
   // Progress Bar
   if (progress > 0) {
     const progressWidth = Math.max(2, progress * barWidth);
     canvas.setFillColor(new Color(COLORS.primary));
-    canvas.fillRoundedRect(new Rect(0, 0, progressWidth, barHeight), 1);
+    canvas.fillRect(new Rect(0, 0, progressWidth, barHeight));
   }
   
   const progressImage = canvas.getImage();
-  const progressImg = hoursProgressStack.addImage(progressImage);
+  const progressImg = progressStack.addImage(progressImage);
   progressImg.imageSize = new Size(barWidth, barHeight);
   
-  // Prozentanzeige
-  const percentText = hoursProgressStack.addText(`${percent}%`);
+  // Prozentanzeige rechts vom Balken
+  const percentText = progressStack.addText(`${percent}%`);
   percentText.font = Font.regularSystemFont(13);
-  percentText.textColor = new Color(COLORS.textSecondary);
+  percentText.textColor = new Color(COLORS.text);
+  percentText.leftAlignText(); // Linksbündig
   
   return widget;
 }
