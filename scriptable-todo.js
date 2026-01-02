@@ -2,18 +2,19 @@
 // Installiere Scriptable aus dem App Store, dann kopiere dieses Script in die App
 
 // ===== KONFIGURATION =====
-const WIDGET_API_URL = 'https://deine-domain.de/widget-api.html';
+const WIDGET_API_URL = 'https://todo-eight-pi-66.vercel.app/widget-api.html';
 const SUPABASE_URL = 'https://yzdcfxylvymaybgoetjn.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6ZGNmeHlsdnltYXliZ29ldGpuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwOTg0NzgsImV4cCI6MjA4MjY3NDQ3OH0.ek5V6ii7cAU5SMk_tIDyYZbWctXvmvEzRCvNYl3C2SE';
 
-// Farben (passend zu deiner App)
+// Farben (passend zum Foto-Design)
 const COLORS = {
-  background: '#1a1a1a',
-  primary: '#4a9eff',
-  text: '#ffffff',
-  textSecondary: '#b0b0b0',
-  completed: '#6bcf7f',
-  card: '#252525'
+  background: '#1a1a1a',        // Dunkler Hintergrund
+  card: '#2d2d2d',              // Dunkelgraue Karte (charcoal)
+  border: '#4a4a4a',           // Hellgrauer Rand
+  primary: '#4a9eff',          // Helles Blau
+  text: '#ffffff',             // Weißer Text
+  textSecondary: '#b0b0b0',    // Hellgrauer Text
+  textMuted: '#808080'         // Gedämpfter Text
 };
 
 // ===== HAUPTFUNKTION =====
@@ -73,17 +74,16 @@ async function loadFromSupabase() {
     
     const todos = await req.loadJSON();
     
-    const total = todos.length;
-    const completed = todos.filter(t => t.completed).length;
-    const remaining = todos
-      .filter(t => !t.completed)
-      .reduce((sum, t) => sum + (parseFloat(t.planned_hours) || 0) - (parseFloat(t.used_hours) || 0), 0);
+    // Berechne Stunden
+    const totalPlanned = todos.reduce((sum, t) => sum + (parseFloat(t.planned_hours) || 0), 0);
+    const totalUsed = todos.reduce((sum, t) => sum + (parseFloat(t.used_hours) || 0), 0);
     
     return {
       date: today,
-      total: total,
-      completed: completed,
-      remaining: remaining,
+      total: todos.length,
+      completed: todos.filter(t => t.completed).length,
+      totalPlanned: totalPlanned,
+      totalUsed: totalUsed,
       todos: todos
     };
   } catch (error) {
@@ -92,230 +92,98 @@ async function loadFromSupabase() {
   }
 }
 
-// ===== WIDGET-VARIANTEN =====
-
-// Kleines Widget (2x2)
+// ===== WIDGET ERSTELLEN =====
 function createSmallWidget(widget, data) {
-  // Titel
-  const title = widget.addText('📝 Aufgaben');
-  title.textColor = new Color(COLORS.primary);
-  title.font = Font.boldSystemFont(16);
-  
-  widget.addSpacer(8);
-  
-  // Hauptstatistik
-  const mainStat = widget.addText(`${data.completed}/${data.total}`);
-  mainStat.textColor = new Color(COLORS.text);
-  mainStat.font = Font.boldSystemFont(32);
-  
-  widget.addSpacer(4);
-  
-  // Untertitel
-  const subtitle = widget.addText('erledigt');
-  subtitle.textColor = new Color(COLORS.textSecondary);
-  subtitle.font = Font.systemFont(12);
-  
-  widget.addSpacer(8);
-  
-  // Verbleibende Stunden
-  if (data.remaining > 0) {
-    const hours = widget.addText(`${data.remaining.toFixed(1)}h verbleibend`);
-    hours.textColor = new Color(COLORS.primary);
-    hours.font = Font.systemFont(11);
-  }
-  
-  return widget;
+  return createMainWidget(widget, data);
 }
 
-// Mittleres Widget (4x2)
 function createMediumWidget(widget, data) {
-  // Header
-  const headerStack = widget.addStack();
-  headerStack.layoutHorizontally();
-  
-  const title = headerStack.addText('Meine Aufgaben');
-  title.textColor = new Color(COLORS.primary);
-  title.font = Font.boldSystemFont(18);
-  
-  headerStack.addSpacer();
-  
-  const date = headerStack.addText(formatDate(data.date));
-  date.textColor = new Color(COLORS.textSecondary);
-  date.font = Font.systemFont(12);
-  
-  widget.addSpacer(12);
-  
-  // Statistiken
-  const statsStack = widget.addStack();
-  statsStack.layoutHorizontally();
-  statsStack.spacing = 12;
-  
-  const totalStat = createStatBox(statsStack, data.total.toString(), 'Aufgaben');
-  const completedStat = createStatBox(statsStack, data.completed.toString(), 'Erledigt');
-  const hoursStat = createStatBox(statsStack, `${data.remaining.toFixed(1)}h`, 'Verbleibend');
-  
-  widget.addSpacer(12);
-  
-  // Wichtigste Todos (max 3)
-  const importantTodos = data.todos
-    .filter(t => !t.completed)
-    .slice(0, 3);
-  
-  if (importantTodos.length > 0) {
-    importantTodos.forEach(todo => {
-      const todoStack = widget.addStack();
-      todoStack.layoutHorizontally();
-      todoStack.spacing = 8;
-      
-      const icon = todoStack.addText('○');
-      icon.textColor = new Color(COLORS.primary);
-      icon.font = Font.systemFont(14);
-      
-      const todoText = todoStack.addText(truncateText(todo.text, 25));
-      todoText.textColor = new Color(COLORS.text);
-      todoText.font = Font.systemFont(13);
-      
-      todoStack.addSpacer();
-      
-      if (todo.planned_hours > 0) {
-        const hours = todoStack.addText(`${todo.planned_hours.toFixed(1)}h`);
-        hours.textColor = new Color(COLORS.textSecondary);
-        hours.font = Font.systemFont(11);
-      }
-      
-      widget.addSpacer(6);
-    });
-  } else {
-    const empty = widget.addText('✓ Alle Aufgaben erledigt!');
-    empty.textColor = new Color(COLORS.completed);
-    empty.font = Font.systemFont(14);
-  }
-  
-  return widget;
+  return createMainWidget(widget, data);
 }
 
-// Großes Widget (4x4)
 function createLargeWidget(widget, data) {
-  // Header
-  const headerStack = widget.addStack();
-  headerStack.layoutHorizontally();
+  return createMainWidget(widget, data);
+}
+
+function createMainWidget(widget, data) {
+  // Hauptcontainer mit Karte
+  const cardStack = widget.addStack();
+  cardStack.layoutHorizontally();
+  cardStack.setPadding(16, 16, 16, 16);
+  cardStack.backgroundColor = new Color(COLORS.card);
+  cardStack.cornerRadius = 12;
+  cardStack.borderWidth = 1;
+  cardStack.borderColor = new Color(COLORS.border);
   
-  const title = headerStack.addText('Meine Aufgaben');
-  title.textColor = new Color(COLORS.primary);
-  title.font = Font.boldSystemFont(20);
+  const contentStack = cardStack.addStack();
+  contentStack.layoutVertically();
+  contentStack.spacing = 8;
   
-  headerStack.addSpacer();
+  // "HEUTE" Text oben links
+  const heuteText = contentStack.addText('HEUTE');
+  heuteText.font = Font.boldSystemFont(20);
+  heuteText.textColor = new Color(COLORS.primary);
   
-  const date = headerStack.addText(formatDate(data.date));
-  date.textColor = new Color(COLORS.textSecondary);
-  date.font = Font.systemFont(13);
+  // "AUFGABE" mit blauem Kreis
+  const aufgabeStack = contentStack.addStack();
+  aufgabeStack.layoutHorizontally();
+  aufgabeStack.spacing = 6;
+  aufgabeStack.centerAlignContent();
   
-  widget.addSpacer(12);
+  // Blauer Kreis
+  const circleStack = aufgabeStack.addStack();
+  circleStack.size = new Size(8, 8);
+  circleStack.backgroundColor = new Color(COLORS.primary);
+  circleStack.cornerRadius = 4;
   
-  // Statistiken
-  const statsStack = widget.addStack();
-  statsStack.layoutHorizontally();
-  statsStack.spacing = 12;
+  // "AUFGABE" Text
+  const aufgabeText = aufgabeStack.addText('AUFGABE');
+  aufgabeText.font = Font.regularSystemFont(14);
+  aufgabeText.textColor = new Color(COLORS.textSecondary);
   
-  createStatBox(statsStack, data.total.toString(), 'Gesamt');
-  createStatBox(statsStack, data.completed.toString(), 'Erledigt');
-  createStatBox(statsStack, `${data.remaining.toFixed(1)}h`, 'Verbleibend');
+  // Stunden-Anzeige "2,9H / 4H" mit Progress Bar in einer Zeile
+  const hoursProgressStack = contentStack.addStack();
+  hoursProgressStack.layoutHorizontally();
+  hoursProgressStack.spacing = 8;
+  hoursProgressStack.centerAlignContent();
   
-  widget.addSpacer(16);
+  const usedHours = data.totalUsed.toFixed(1).replace('.', ',');
+  const plannedHours = data.totalPlanned.toFixed(1).replace('.', ',');
+  const hoursText = hoursProgressStack.addText(`${usedHours}H / ${plannedHours}H`);
+  hoursText.font = Font.regularSystemFont(13);
+  hoursText.textColor = new Color(COLORS.textSecondary);
   
-  // Alle Todos (max 8)
-  const todosToShow = data.todos.slice(0, 8);
+  // Berechne Fortschritt
+  const progress = data.totalPlanned > 0 ? Math.min(data.totalUsed / data.totalPlanned, 1) : 0;
+  const percent = Math.round(progress * 100);
   
-  todosToShow.forEach(todo => {
-    const todoStack = widget.addStack();
-    todoStack.layoutHorizontally();
-    todoStack.spacing = 10;
-    
-    // Checkbox
-    const icon = todoStack.addText(todo.completed ? '✓' : '○');
-    icon.textColor = todo.completed ? new Color(COLORS.completed) : new Color(COLORS.primary);
-    icon.font = Font.systemFont(16);
-    
-    // Todo-Text
-    const todoText = todoStack.addText(truncateText(todo.text, 30));
-    todoText.textColor = todo.completed ? new Color(COLORS.textSecondary) : new Color(COLORS.text);
-    todoText.font = Font.systemFont(14);
-    if (todo.completed) {
-      todoText.textOpacity = 0.7;
-    }
-    
-    todoStack.addSpacer();
-    
-    // Stunden
-    if (todo.planned_hours > 0) {
-      const hoursStack = todoStack.addStack();
-      hoursStack.layoutVertically();
-      
-      const hours = hoursStack.addText(`${todo.used_hours.toFixed(1)}/${todo.planned_hours.toFixed(1)}h`);
-      hours.textColor = new Color(COLORS.primary);
-      hours.font = Font.systemFont(11);
-      
-      // Progress bar (visuell)
-      const progress = todo.planned_hours > 0 ? (todo.used_hours / todo.planned_hours) * 100 : 0;
-      const progressText = hoursStack.addText(`${Math.min(progress, 100).toFixed(0)}%`);
-      progressText.textColor = new Color(COLORS.textSecondary);
-      progressText.font = Font.systemFont(9);
-    }
-    
-    widget.addSpacer(8);
-  });
+  // Progress Bar mit Canvas zeichnen
+  const barWidth = 100;
+  const barHeight = 2;
+  const canvas = new DrawContext();
+  canvas.size = new Size(barWidth, barHeight);
   
-  if (data.todos.length > 8) {
-    widget.addSpacer(4);
-    const more = widget.addText(`+ ${data.todos.length - 8} weitere...`);
-    more.textColor = new Color(COLORS.textSecondary);
-    more.font = Font.systemFont(12);
+  // Hintergrund
+  canvas.setFillColor(new Color(COLORS.border));
+  canvas.fillRoundedRect(new Rect(0, 0, barWidth, barHeight), 1);
+  
+  // Progress Bar
+  if (progress > 0) {
+    const progressWidth = Math.max(2, progress * barWidth);
+    canvas.setFillColor(new Color(COLORS.primary));
+    canvas.fillRoundedRect(new Rect(0, 0, progressWidth, barHeight), 1);
   }
+  
+  const progressImage = canvas.getImage();
+  const progressImg = hoursProgressStack.addImage(progressImage);
+  progressImg.imageSize = new Size(barWidth, barHeight);
+  
+  // Prozentanzeige
+  const percentText = hoursProgressStack.addText(`${percent}%`);
+  percentText.font = Font.regularSystemFont(13);
+  percentText.textColor = new Color(COLORS.textSecondary);
   
   return widget;
-}
-
-// ===== HELPER-FUNKTIONEN =====
-
-function createStatBox(stack, value, label) {
-  const statStack = stack.addStack();
-  statStack.layoutVertically();
-  statStack.centerAlignContent();
-  
-  const valueText = statStack.addText(value);
-  valueText.textColor = new Color(COLORS.primary);
-  valueText.font = Font.boldSystemFont(20);
-  
-  const labelText = statStack.addText(label);
-  labelText.textColor = new Color(COLORS.textSecondary);
-  labelText.font = Font.systemFont(10);
-  
-  return statStack;
-}
-
-function formatDate(dateString) {
-  const date = new Date(dateString + 'T00:00:00');
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const taskDate = new Date(date);
-  taskDate.setHours(0, 0, 0, 0);
-  
-  if (taskDate.getTime() === today.getTime()) {
-    return 'Heute';
-  }
-  
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (taskDate.getTime() === tomorrow.getTime()) {
-    return 'Morgen';
-  }
-  
-  return date.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
-}
-
-function truncateText(text, maxLength) {
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength - 3) + '...';
 }
 
 function createErrorWidget() {
@@ -323,37 +191,27 @@ function createErrorWidget() {
   widget.backgroundColor = new Color(COLORS.background);
   widget.setPadding(16, 16, 16, 16);
   
-  const error = widget.addText('⚠️ Fehler beim Laden');
-  error.textColor = new Color(COLORS.text);
-  error.font = Font.systemFont(14);
-  
-  widget.addSpacer(8);
-  
-  const hint = widget.addText('Tippe zum Aktualisieren');
-  hint.textColor = new Color(COLORS.textSecondary);
-  hint.font = Font.systemFont(12);
+  const errorText = widget.addText('Fehler beim Laden');
+  errorText.font = Font.regularSystemFont(14);
+  errorText.textColor = new Color(COLORS.textSecondary);
+  errorText.centerAlignText();
   
   return widget;
 }
 
 function getWidgetConfig() {
-  if (typeof config !== 'undefined') {
-    return config;
+  if (config.runsInWidget) {
+    return { family: config.widgetFamily };
   }
-  // Fallback für manuelles Testen
-  return { family: 2 }; // Large
+  return { family: 1 }; // Default: Medium
 }
 
-// ===== WIDGET ERSTELLEN =====
+// ===== WIDGET AUSFÜHREN =====
 const widget = await createWidget();
-
-// Widget anzeigen (für Vorschau)
 if (config.runsInWidget) {
   Script.setWidget(widget);
 } else {
-  // Für Vorschau in der App
   widget.presentSmall();
 }
-
 Script.complete();
 

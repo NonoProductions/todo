@@ -23,56 +23,77 @@
             max-width: 100%;
         }
         
+        .widget-card {
+            background: #2d2d2d;
+            border: 1px solid #4a4a4a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+        
         .widget-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
         
         .widget-title {
             font-size: 20px;
-            font-weight: 600;
+            font-weight: 700;
             color: #4a9eff;
-        }
-        
-        .widget-date {
-            font-size: 14px;
-            color: #b0b0b0;
-        }
-        
-        .todo-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        
-        .todo-item {
-            background: #252525;
-            border-radius: 12px;
-            padding: 12px;
-            border-left: 3px solid #4a9eff;
-        }
-        
-        .todo-item.completed {
-            opacity: 0.6;
-            border-left-color: #6bcf7f;
-        }
-        
-        .todo-text {
-            font-size: 16px;
             margin-bottom: 4px;
         }
         
-        .todo-meta {
+        .widget-task-section {
             display: flex;
-            gap: 12px;
-            font-size: 12px;
-            color: #b0b0b0;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
         }
         
-        .todo-hours {
-            color: #4a9eff;
+        .task-circle {
+            width: 8px;
+            height: 8px;
+            background: #4a9eff;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .task-label {
+            font-size: 14px;
+            color: #b0b0b0;
+            font-weight: 400;
+        }
+        
+        .hours-display {
+            font-size: 13px;
+            color: #b0b0b0;
+            margin-bottom: 12px;
+        }
+        
+        .progress-section {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .progress-bar-container {
+            flex: 1;
+            height: 2px;
+            background: #4a4a4a;
+            border-radius: 1px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: #4a9eff;
+            border-radius: 1px;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-percent {
+            font-size: 13px;
+            color: #b0b0b0;
+            min-width: 40px;
         }
         
         .empty-state {
@@ -80,58 +101,28 @@
             padding: 32px;
             color: #808080;
         }
-        
-        .stats {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 16px;
-            padding: 12px;
-            background: #252525;
-            border-radius: 12px;
-        }
-        
-        .stat-item {
-            flex: 1;
-            text-align: center;
-        }
-        
-        .stat-value {
-            font-size: 24px;
-            font-weight: 600;
-            color: #4a9eff;
-        }
-        
-        .stat-label {
-            font-size: 12px;
-            color: #b0b0b0;
-            margin-top: 4px;
-        }
     </style>
 </head>
 <body>
     <div class="widget-container">
-        <div class="widget-header">
-            <div class="widget-title">Meine Aufgaben</div>
-            <div class="widget-date" id="widgetDate"></div>
-        </div>
-        
-        <div class="stats" id="stats" style="display: none;">
-            <div class="stat-item">
-                <div class="stat-value" id="totalTasks">0</div>
-                <div class="stat-label">Aufgaben</div>
+        <div class="widget-card">
+            <div class="widget-header">
+                <div class="widget-title">HEUTE</div>
             </div>
-            <div class="stat-item">
-                <div class="stat-value" id="completedTasks">0</div>
-                <div class="stat-label">Erledigt</div>
+            
+            <div class="widget-task-section">
+                <div class="task-circle"></div>
+                <div class="task-label">AUFGABE</div>
             </div>
-            <div class="stat-item">
-                <div class="stat-value" id="remainingHours">0h</div>
-                <div class="stat-label">Verbleibend</div>
+            
+            <div class="hours-display" id="hoursDisplay">0,0H / 0,0H</div>
+            
+            <div class="progress-section">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+                </div>
+                <div class="progress-percent" id="progressPercent">0%</div>
             </div>
-        </div>
-        
-        <div class="todo-list" id="todoList">
-            <div class="empty-state">Lade Aufgaben...</div>
         </div>
     </div>
 
@@ -155,13 +146,6 @@
         
         // Start initialization
         initializeSupabase();
-        
-        // Update date display
-        function updateDateDisplay() {
-            const today = new Date();
-            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            document.getElementById('widgetDate').textContent = today.toLocaleDateString('de-DE', options);
-        }
         
         // Load todos
         async function loadTodos() {
@@ -207,44 +191,26 @@
             updateStats(todos);
         }
         
-        // Render todos
+        // Render todos (nicht mehr benötigt für das neue Design)
         function renderTodos(todos) {
-            const todoList = document.getElementById('todoList');
-            
-            if (todos.length === 0) {
-                todoList.innerHTML = '<div class="empty-state">Keine Aufgaben für heute</div>';
-                return;
-            }
-            
-            todoList.innerHTML = todos.map(todo => {
-                const plannedHours = parseFloat(todo.planned_hours) || 0;
-                const usedHours = parseFloat(todo.used_hours) || 0;
-                const hoursText = plannedHours > 0 ? `${usedHours.toFixed(1)}h / ${plannedHours.toFixed(1)}h` : '';
-                
-                return `
-                    <div class="todo-item ${todo.completed ? 'completed' : ''}">
-                        <div class="todo-text">${escapeHtml(todo.text)}</div>
-                        <div class="todo-meta">
-                            ${hoursText ? `<span class="todo-hours">${hoursText}</span>` : ''}
-                            ${todo.completed ? '<span>✓ Erledigt</span>' : '<span>⏳ Offen</span>'}
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            // Das neue Design zeigt nur die Zusammenfassung, keine einzelnen Todos
         }
         
         // Update statistics
         function updateStats(todos) {
-            const total = todos.length;
-            const completed = todos.filter(t => t.completed).length;
-            const remaining = todos
-                .filter(t => !t.completed)
-                .reduce((sum, t) => sum + (parseFloat(t.planned_hours) || 0) - (parseFloat(t.used_hours) || 0), 0);
+            const totalPlanned = todos.reduce((sum, t) => sum + (parseFloat(t.planned_hours) || 0), 0);
+            const totalUsed = todos.reduce((sum, t) => sum + (parseFloat(t.used_hours) || 0), 0);
             
-            document.getElementById('totalTasks').textContent = total;
-            document.getElementById('completedTasks').textContent = completed;
-            document.getElementById('remainingHours').textContent = remaining > 0 ? `${remaining.toFixed(1)}h` : '0h';
-            document.getElementById('stats').style.display = 'flex';
+            // Stunden-Anzeige aktualisieren
+            const usedHoursStr = totalUsed.toFixed(1).replace('.', ',');
+            const plannedHoursStr = totalPlanned.toFixed(1).replace('.', ',');
+            document.getElementById('hoursDisplay').textContent = `${usedHoursStr}H / ${plannedHoursStr}H`;
+            
+            // Progress Bar aktualisieren
+            const progress = totalPlanned > 0 ? Math.min(totalUsed / totalPlanned, 1) : 0;
+            const percent = Math.round(progress * 100);
+            document.getElementById('progressBar').style.width = `${percent}%`;
+            document.getElementById('progressPercent').textContent = `${percent}%`;
         }
         
         // Escape HTML
@@ -256,7 +222,6 @@
         
         // Initialize after Supabase is ready
         function initialize() {
-            updateDateDisplay();
             loadTodos();
             
             // Auto-refresh every 30 seconds
