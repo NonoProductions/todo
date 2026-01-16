@@ -62,3 +62,5 @@ Alternativ können Sie eigene Icons erstellen:
 - **Icons werden nicht angezeigt**: Prüfen Sie, ob die Icon-Dateien im richtigen Verzeichnis liegen
 - **App funktioniert nicht offline**: Prüfen Sie die Browser-Konsole auf Fehler
 
+
+

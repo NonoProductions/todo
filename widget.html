@@ -19,7 +19,9 @@
             margin: 0;
             min-height: 100vh;
             width: 100%;
-            overflow: hidden;
+            overflow: visible;
+            visibility: visible;
+            opacity: 1;
         }
         
         .widget-container {
@@ -30,6 +32,8 @@
             flex-direction: column;
             align-items: flex-start;
             justify-content: flex-start;
+            visibility: visible;
+            opacity: 1;
         }
         
         .widget-card {
@@ -42,6 +46,8 @@
             flex-direction: column;
             align-items: flex-start;
             justify-content: flex-start;
+            visibility: visible;
+            opacity: 1;
         }
         
         .widget-header {
@@ -161,11 +167,15 @@
             
             <div class="widget-tasks" id="tasksList">
                 <!-- Tasks will be dynamically inserted here -->
+                <div class="widget-task-section">
+                    <div class="task-circle"></div>
+                    <div class="task-label">Lade Aufgaben...</div>
+                </div>
             </div>
             
-            <div class="hours-display" id="hoursDisplay">0,0H / 0,0H</div>
+            <div class="hours-display" id="hoursDisplay" style="visibility: visible; opacity: 1;">0,0H / 0,0H</div>
             
-            <div class="progress-section">
+            <div class="progress-section" style="visibility: visible; opacity: 1;">
                 <div class="progress-bar-container">
                     <div class="progress-bar" id="progressBar" style="width: 0%"></div>
                 </div>
@@ -317,19 +327,29 @@
         
         // Initialize after Supabase is ready
         function initialize() {
+            // Stelle sicher, dass alles sichtbar ist
+            document.body.style.visibility = 'visible';
+            document.body.style.opacity = '1';
+            
             loadTodos();
             
             // Auto-refresh every 30 seconds
             setInterval(loadTodos, 30000);
         }
         
+        // Stelle sicher, dass alles sofort sichtbar ist
+        document.body.style.visibility = 'visible';
+        document.body.style.opacity = '1';
+        
         // Wait for Supabase to load
         if (typeof supabase !== 'undefined') {
             initialize();
         } else {
             window.addEventListener('load', () => {
-                setTimeout(initialize, 500);
+                setTimeout(initialize, 100);
             });
+            // Auch ohne load event initialisieren
+            setTimeout(initialize, 200);
         }
     </script>
 </body>
