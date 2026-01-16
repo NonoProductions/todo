@@ -53,7 +53,7 @@ header {
 
 .week-planner {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: 16px;
     padding: 12px;
     margin-bottom: 16px;
@@ -334,7 +334,7 @@ header h1:hover {
 
 .week-planner-page {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    border: none;
     border-radius: 16px;
     padding: 16px;
     overflow: hidden;
@@ -346,22 +346,17 @@ header h1:hover {
     gap: 8px;
 }
 
-.week-today-btn {
-    padding: 6px 12px;
-    font-size: 14px;
-}
-
 .week-grid {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0;
     overflow-x: auto;
 }
 
 .week-row {
     display: grid;
     grid-template-columns: 64px repeat(7, minmax(80px, 1fr));
-    gap: 6px;
+    gap: 0;
 }
 
 .week-row-header {
@@ -373,8 +368,9 @@ header h1:hover {
 
 .week-cell {
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 0;
     min-height: 44px;
     padding: 6px 8px;
     display: flex;
@@ -387,15 +383,24 @@ header h1:hover {
 .week-cell-time {
     font-weight: 600;
     color: var(--text-secondary);
-    background: transparent;
-    border: none;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
     justify-content: flex-start;
+    position: sticky;
+    left: 0;
+    z-index: 3;
 }
 
 .week-cell-header {
     background: var(--bg-primary);
-    border-color: var(--border-color);
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
     padding: 4px 6px;
+}
+
+.week-row-header .week-cell-time {
+    z-index: 4;
 }
 
 .week-day-header {
@@ -997,6 +1002,19 @@ form {
     .week-cell {
         min-height: 40px;
         font-size: 12px;
+    }
+
+    .week-cell-time {
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        background: var(--bg-secondary);
+        box-shadow: 4px 0 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .week-row-header .week-cell-time {
+        background: var(--bg-secondary);
+        z-index: 4;
     }
 
     .todo-item {

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wochenplaner</title>
+    <meta name="description" content="Wochenplaner mit Aufgaben pro Stunde">
+    <meta name="theme-color" content="#4a9eff">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="header-spacer"></div>
+                <div class="week-page-title">
+                    <h1>Wochenplaner</h1>
+                </div>
+                <div class="header-buttons">
+                    <a class="nav-btn" href="index.html" title="Zur Todo-Liste">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <div class="week-planner-page">
+            <div class="week-planner-header">
+                <button class="week-nav-btn" id="prevWeekBtn" title="Vorherige Woche">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="15 18 9 12 15 6"></polyline>
+                    </svg>
+                </button>
+                <div class="week-range" id="weekRange"></div>
+                <div class="week-header-actions">
+                    <button class="week-nav-btn" id="nextWeekBtn" title="Nächste Woche">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="week-grid" id="weekGrid"></div>
+        </div>
+    </div>
+
+    <div class="modal" id="weekTaskModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="weekTaskTitle">Aufgabe</h2>
+                <button class="modal-close" id="closeWeekTaskModal">&times;</button>
+            </div>
+            <form id="weekTaskForm">
+                <div class="form-group">
+                    <label for="weekTaskText">Aufgabe für diese Stunde</label>
+                    <input type="text" id="weekTaskText" placeholder="z.B. Bericht schreiben">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="deleteWeekTaskBtn">Löschen</button>
+                    <button type="submit" class="btn btn-primary">Speichern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="week.js"></script>
+</body>
+</html>
+
