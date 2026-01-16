@@ -40,6 +40,7 @@ const emptyState = document.getElementById('emptyState');
 const todoModal = document.getElementById('todoModal');
 const todoForm = document.getElementById('todoForm');
 const loadingOverlay = document.getElementById('loadingOverlay');
+const weekPlanner = document.getElementById('weekPlanner');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -47,6 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTodos();
     setupEventListeners();
     updateDateDisplay(); // Initialize date display
+    renderWeekPlanner();
     renderTodos();
     
     // Load calendar settings and auto-sync if enabled
@@ -94,6 +96,22 @@ function setupEventListeners() {
         setSelectedDate(e.target.value);
         document.getElementById('datePicker').style.display = 'none';
     });
+
+    if (weekPlanner) {
+        weekPlanner.addEventListener('click', (e) => {
+            const dayButton = e.target.closest('.week-day-btn');
+            if (dayButton && dayButton.dataset.date) {
+                setSelectedDate(dayButton.dataset.date);
+                return;
+            }
+
+            const actionButton = e.target.closest('[data-week-action]');
+            if (actionButton) {
+                const action = actionButton.dataset.weekAction;
+                navigateDate(action === 'prev' ? -7 : 7);
+            }
+        });
+    }
     
     // Form Submission
     todoForm.addEventListener('submit', handleTodoSubmit);
@@ -520,6 +538,90 @@ function updateDateDisplay() {
     
     // Disable prev button if we're at the earliest date (optional: can be removed)
     // Enable/disable next button based on future dates (optional)
+
+    renderWeekPlanner();
+}
+
+function renderWeekPlanner() {
+    if (!weekPlanner) return;
+
+    const selected = new Date(selectedDate + 'T12:00:00');
+    const weekStart = getWeekStart(selected);
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+        const date = new Date(weekStart);
+        date.setDate(weekStart.getDate() + i);
+
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
+        const dayNames = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        const dayIndex = (date.getDay() + 6) % 7; // Monday = 0
+
+        days.push({
+            dateStr,
+            dayName: dayNames[dayIndex],
+            dayNumber: date.getDate(),
+            isSelected: dateStr === selectedDate,
+            isToday: dateStr === todayStr
+        });
+    }
+
+    const weekRange = formatWeekRange(weekStart);
+
+    weekPlanner.innerHTML = `
+        <div class="week-planner-header">
+            <button class="week-nav-btn" data-week-action="prev" title="Vorherige Woche">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+            <div class="week-range">${weekRange}</div>
+            <button class="week-nav-btn" data-week-action="next" title="Nächste Woche">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </button>
+        </div>
+        <div class="week-days">
+            ${days.map(day => `
+                <button class="week-day-btn ${day.isSelected ? 'active' : ''} ${day.isToday ? 'today' : ''}" data-date="${day.dateStr}">
+                    <span class="week-day-name">${day.dayName}</span>
+                    <span class="week-day-number">${day.dayNumber}</span>
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
+
+function getWeekStart(date) {
+    const start = new Date(date);
+    const day = start.getDay();
+    const diff = (day + 6) % 7; // Monday-based
+    start.setDate(start.getDate() - diff);
+    start.setHours(0, 0, 0, 0);
+    return start;
+}
+
+function formatWeekRange(weekStart) {
+    const end = new Date(weekStart);
+    end.setDate(end.getDate() + 6);
+
+    const months = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+    const startDay = weekStart.getDate();
+    const endDay = end.getDate();
+    const startMonth = months[weekStart.getMonth()];
+    const endMonth = months[end.getMonth()];
+
+    if (weekStart.getMonth() === end.getMonth()) {
+        return `${startDay}.–${endDay}. ${startMonth}`;
+    }
+
+    return `${startDay}. ${startMonth} – ${endDay}. ${endMonth}`;
 }
 
 function renderTodos() {
