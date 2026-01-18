@@ -63,23 +63,23 @@ header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 10px;
-    gap: 8px;
+    margin-bottom: 16px;
+    gap: 12px;
 }
 
 .week-range {
-    font-size: 13px;
-    color: var(--text-secondary);
+    font-size: 15px;
+    color: var(--text-primary);
     font-weight: 600;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.1px;
 }
 
 .week-nav-btn {
     background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    width: 32px;
-    height: 32px;
+    border: none;
+    border-radius: 12px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -90,8 +90,9 @@ header {
 }
 
 .week-nav-btn:hover {
-    background: var(--bg-primary);
+    background: var(--bg-secondary);
     transform: scale(1.05);
+    color: var(--btn-primary);
 }
 
 .week-nav-btn:active {
@@ -333,10 +334,10 @@ header h1:hover {
 }
 
 .week-planner-page {
-    background: var(--bg-secondary);
+    background: transparent;
     border: none;
-    border-radius: 16px;
-    padding: 16px;
+    border-radius: 0;
+    padding: 12px;
     overflow: hidden;
 }
 
@@ -351,86 +352,231 @@ header h1:hover {
     flex-direction: column;
     gap: 0;
     overflow-x: auto;
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 12px;
+    padding: 0;
+    position: relative;
+    --week-time-col: 56px;
 }
 
 .week-row {
     display: grid;
-    grid-template-columns: 64px repeat(7, minmax(80px, 1fr));
+    grid-template-columns: 56px repeat(7, minmax(120px, 1fr));
     gap: 0;
+    margin-bottom: 0;
 }
 
 .week-row-header {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: var(--bg-secondary);
+    background: transparent;
+    padding-bottom: 0;
+    margin-bottom: 0;
 }
 
 .week-cell {
-    background: var(--bg-card);
+    background: transparent;
     border-right: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
     border-radius: 0;
-    min-height: 44px;
-    padding: 6px 8px;
+    min-height: 48px;
+    padding: 4px;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
+    justify-content: flex-start;
     color: var(--text-primary);
     font-size: 13px;
+    position: relative;
 }
 
 .week-cell-time {
     font-weight: 600;
     color: var(--text-secondary);
-    background: var(--bg-secondary);
+    background: transparent;
     border-right: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
     justify-content: flex-start;
     position: sticky;
     left: 0;
     z-index: 3;
+    font-size: 12px;
+    padding: 8px 4px;
+    border-radius: 0;
+    align-items: center;
 }
 
 .week-cell-header {
-    background: var(--bg-primary);
+    background: transparent;
     border-right: 1px solid var(--border-color);
     border-bottom: 1px solid var(--border-color);
-    padding: 4px 6px;
+    padding: 10px 6px;
+    border-radius: 0;
+    justify-content: center;
+    align-items: center;
+}
+
+.week-cell-header.today {
+    border-color: rgba(74, 158, 255, 0.3);
 }
 
 .week-row-header .week-cell-time {
     z-index: 4;
 }
 
+.week-row:last-child .week-cell {
+    border-bottom: none;
+}
+
+.week-row .week-cell:last-child {
+    border-right: none;
+}
+
+.now-line {
+    position: absolute;
+    height: 2px;
+    background: #ff6b6b;
+    z-index: 5;
+    pointer-events: none;
+}
+
+.now-line-dot {
+    position: absolute;
+    left: calc(var(--week-time-col) - 6px);
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    background: #ff6b6b;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.2);
+}
+
+.week-slot-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: stretch;
+    padding: 4px;
+    min-height: 48px;
+    position: relative;
+}
+
+.week-task-item {
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: left;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    word-wrap: break-word;
+    word-break: break-word;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+}
+
+.week-task-item:hover {
+    background: var(--bg-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.week-task-timed {
+    background: rgba(74, 158, 255, 0.18);
+    border: 1px solid rgba(74, 158, 255, 0.4);
+}
+
+.week-task-timed:hover {
+    background: rgba(74, 158, 255, 0.25);
+    border-color: var(--btn-primary);
+}
+
+.week-task-no-time {
+    background: var(--bg-card);
+    border: 1px dashed var(--border-color);
+}
+
+.week-task-text {
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.week-task-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.week-task-add {
+    background: transparent;
+    border: 2px dashed var(--border-color);
+    border-radius: 6px;
+    padding: 6px;
+    text-align: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    width: 100%;
+}
+
+.week-task-add:hover {
+    border-color: var(--btn-primary);
+    color: var(--btn-primary);
+    background: rgba(74, 158, 255, 0.05);
+}
+
+.week-task-add svg {
+    width: 16px;
+    height: 16px;
+}
+
 .week-day-header {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
 }
 
-.week-day-header.today .week-day-number {
+.week-day-header .week-day-name {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.week-day-header .week-day-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.week-day-header.today .week-day-name {
     color: var(--btn-primary);
 }
 
-.week-slot {
-    cursor: pointer;
-    transition: border-color 0.2s ease, background 0.2s ease;
-    text-align: left;
-    justify-content: flex-start;
+.week-day-header.today .week-day-number {
+    color: white;
+    background: var(--btn-primary);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(74, 158, 255, 0.3);
 }
 
-.week-slot:hover {
-    border-color: var(--btn-primary);
-    background: var(--bg-primary);
-}
-
-.week-slot.has-task {
-    border-color: rgba(74, 158, 255, 0.6);
-    background: rgba(74, 158, 255, 0.15);
-    font-weight: 600;
-}
 
 .todo-list {
     display: flex;
@@ -992,16 +1138,25 @@ form {
     }
 
     .week-planner-page {
-        padding: 12px;
+        padding: 10px;
+    }
+    
+    .week-grid {
+        padding: 0;
+        min-height: calc(100vh - 200px);
+        --week-time-col: 48px;
     }
 
     .week-row {
-        grid-template-columns: 52px repeat(7, minmax(72px, 1fr));
+        grid-template-columns: 48px repeat(7, minmax(100px, 1fr));
+        gap: 0;
+        min-height: 64px;
     }
 
     .week-cell {
-        min-height: 40px;
+        min-height: 64px;
         font-size: 12px;
+        padding: 3px;
     }
 
     .week-cell-time {
@@ -1009,12 +1164,44 @@ form {
         left: 0;
         z-index: 3;
         background: var(--bg-secondary);
-        box-shadow: 4px 0 8px rgba(0, 0, 0, 0.3);
+        padding: 6px 3px;
+        font-size: 11px;
+        border-radius: 0;
     }
 
     .week-row-header .week-cell-time {
         background: var(--bg-secondary);
         z-index: 4;
+    }
+    
+    .week-cell-header {
+        border-radius: 0;
+        padding: 8px 4px;
+    }
+    
+    .week-slot-container {
+        padding: 3px;
+        gap: 3px;
+        min-height: 64px;
+    }
+    
+    .week-task-item {
+        font-size: 11px;
+        padding: 6px;
+    }
+    
+    .week-task-time {
+        font-size: 10px;
+    }
+    
+    .week-task-add {
+        padding: 4px;
+        min-height: 28px;
+    }
+    
+    .week-task-add svg {
+        width: 14px;
+        height: 14px;
     }
 
     .todo-item {

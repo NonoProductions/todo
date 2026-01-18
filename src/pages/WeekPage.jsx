@@ -27,13 +27,17 @@ const dayNamesLong = [
   'Samstag'
 ];
 
-const startHour = 8;
+const startHour = 15;
 const endHour = 24;
+const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
 
 export default function WeekPage() {
   const [weekStartDate, setWeekStartDate] = useState(getWeekStart(new Date()));
-  const [activeSlot, setActiveSlot] = useState(null);
+  const [activeTask, setActiveTask] = useState(null);
   const [taskInput, setTaskInput] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [nowLineStyle, setNowLineStyle] = useState(null);
   const weekGridRef = useRef(null);
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
@@ -42,107 +46,220 @@ export default function WeekPage() {
 
   const weekDates = useMemo(() => getWeekDates(weekStartDate), [weekStartDate]);
   const weekRange = useMemo(() => formatWeekRange(weekStartDate), [weekStartDate]);
+  const todayKey = useMemo(() => formatDateKey(new Date()), []);
+  const isTodayInWeek = useMemo(
+    () => weekDates.some((date) => formatDateKey(date) === todayKey),
+    [todayKey, weekDates]
+  );
 
-  const openSlot = (dateStr, hour) => {
-    const existing = taskState?.[dateStr]?.[hour] || '';
-    setActiveSlot({ dateStr, hour });
-    setTaskInput(existing);
+  useEffect(() => {
+    const container = weekGridRef.current;
+    if (!container) return;
+
+    const updateNowLine = () => {
+      const now = new Date();
+      const todayKey = formatDateKey(now);
+      const isTodayInWeek = weekDates.some((date) => formatDateKey(date) === todayKey);
+      if (!isTodayInWeek) {
+        setNowLineStyle(null);
+        return;
+      }
+
+      const currentHour = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const totalMinutesFromStart = (currentHour - startHour) * 60 + currentMinutes;
+      if (totalMinutesFromStart < 0 || totalMinutesFromStart > (endHour - startHour) * 60) {
+        setNowLineStyle(null);
+        return;
+      }
+
+      const headerRow = container.querySelector('.week-row-header');
+      const dataRow = container.querySelector('.week-row:not(.week-row-header)');
+      if (!headerRow || !dataRow) return;
+
+      const headerHeight = headerRow.getBoundingClientRect().height;
+      const rowHeight = dataRow.getBoundingClientRect().height;
+      const top = headerHeight + (totalMinutesFromStart / 60) * rowHeight;
+      const left = 0;
+      const width = Math.max(container.clientWidth, container.scrollWidth);
+
+      setNowLineStyle({
+        top: `${top}px`,
+        left: `${left}px`,
+        width: `${width}px`
+      });
+    };
+
+    updateNowLine();
+    const interval = setInterval(updateNowLine, 60 * 1000);
+    window.addEventListener('resize', updateNowLine);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('resize', updateNowLine);
+    };
+  }, [weekDates]);
+
+  useEffect(() => {
+    if (!isTodayInWeek) return;
+    if (!window.matchMedia('(max-width: 480px)').matches) return;
+
+    const scrollToTarget = () => {
+      const grid = weekGridRef.current;
+      if (grid) {
+        const headerCell = grid.querySelector(`.week-cell-header[data-date="${todayKey}"]`);
+        if (headerCell) {
+          const targetLeft =
+            headerCell.offsetLeft +
+            headerCell.offsetWidth / 2 -
+            grid.clientWidth / 2;
+          grid.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+        }
+      }
+
+      const now = new Date();
+      const currentHour = Math.min(Math.max(now.getHours(), startHour), endHour);
+      const targetRow = weekGridRef.current?.querySelector(
+        `.week-row[data-hour="${currentHour}"]`
+      );
+      const nowLine = weekGridRef.current?.querySelector('.now-line');
+      const target = nowLine || targetRow;
+      if (!target) return;
+
+      const rect = target.getBoundingClientRect();
+      const targetCenter = rect.top + window.scrollY + rect.height / 2;
+      const desiredTop = Math.max(0, targetCenter - window.innerHeight / 2);
+      window.scrollTo({ top: desiredTop, behavior: 'smooth' });
+    };
+
+    const timer = setTimeout(scrollToTarget, 80);
+    const timer2 = setTimeout(scrollToTarget, 300);
+    const handleResize = () => scrollToTarget();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(timer2);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isTodayInWeek, todayKey, weekDates, weekStartDate, nowLineStyle]);
+
+  const openTaskModal = (dateStr, taskIndex = null, task = null) => {
+    setActiveTask({ dateStr, taskIndex });
+    if (task) {
+      setTaskInput(task.text || (typeof task === 'string' ? task : ''));
+      setStartTime(task.startTime || '');
+      setEndTime(task.endTime || '');
+    } else {
+      setTaskInput('');
+      setStartTime('');
+      setEndTime('');
+    }
   };
 
-  const closeSlot = () => {
-    setActiveSlot(null);
+  const closeTaskModal = () => {
+    setActiveTask(null);
     setTaskInput('');
+    setStartTime('');
+    setEndTime('');
   };
 
-  const saveSlot = (e) => {
+  const saveTask = (e) => {
     e.preventDefault();
-    if (!activeSlot) return;
+    if (!activeTask) return;
     const trimmed = taskInput.trim();
     const next = { ...(taskState || {}) };
-    if (!next[activeSlot.dateStr]) next[activeSlot.dateStr] = {};
+    if (!next[activeTask.dateStr]) next[activeTask.dateStr] = [];
 
     if (!trimmed) {
-      delete next[activeSlot.dateStr][activeSlot.hour];
-      if (Object.keys(next[activeSlot.dateStr]).length === 0) {
-        delete next[activeSlot.dateStr];
+      // Delete task
+      if (activeTask.taskIndex !== null) {
+        next[activeTask.dateStr].splice(activeTask.taskIndex, 1);
+        if (next[activeTask.dateStr].length === 0) {
+          delete next[activeTask.dateStr];
+        }
       }
     } else {
-      next[activeSlot.dateStr][activeSlot.hour] = trimmed;
+      // Add or update task
+      const taskData = {
+        text: trimmed,
+        startTime: startTime.trim() || null,
+        endTime: endTime.trim() || null
+      };
+      if (activeTask.taskIndex !== null) {
+        next[activeTask.dateStr][activeTask.taskIndex] = taskData;
+      } else {
+        next[activeTask.dateStr].push(taskData);
+      }
     }
     setTaskState(next);
     localStorage.setItem('weekPlannerTasks', JSON.stringify(next));
-    closeSlot();
+    closeTaskModal();
   };
 
-  const deleteSlot = () => {
-    if (!activeSlot) return;
+  const deleteTask = () => {
+    if (!activeTask || activeTask.taskIndex === null) return;
     const next = { ...(taskState || {}) };
-    if (next[activeSlot.dateStr]) {
-      delete next[activeSlot.dateStr][activeSlot.hour];
-      if (Object.keys(next[activeSlot.dateStr]).length === 0) {
-        delete next[activeSlot.dateStr];
+    if (next[activeTask.dateStr]) {
+      next[activeTask.dateStr].splice(activeTask.taskIndex, 1);
+      if (next[activeTask.dateStr].length === 0) {
+        delete next[activeTask.dateStr];
       }
       setTaskState(next);
       localStorage.setItem('weekPlannerTasks', JSON.stringify(next));
     }
-    closeSlot();
+    closeTaskModal();
   };
 
-  const centerTodayInMobile = useCallback(() => {
-    const container = weekGridRef.current;
-    if (!container) return;
-    if (!window.matchMedia('(max-width: 480px)').matches) return;
-    if (!weekDates.some((date) => formatDateKey(date) === todayStr)) return;
+  const getTasksForDate = (dateStr) => {
+    return taskState?.[dateStr] || [];
+  };
 
-    const headerCell = container.querySelector(
-      `.week-cell-header[data-date="${todayStr}"]`
-    );
-    if (!headerCell) return;
+  const getTasksForHour = (dateStr, hour) => {
+    const tasks = getTasksForDate(dateStr);
+    return tasks.filter(task => {
+      const taskObj = typeof task === 'string' ? { text: task } : task;
+      if (!taskObj.startTime && !taskObj.endTime) return false;
+      const start = parseTime(taskObj.startTime);
+      const end = parseTime(taskObj.endTime);
+      if (start === null && end === null) return false;
+      if (start !== null && end !== null) {
+        // Show task only in the first hour of its time range
+        return hour === start;
+      }
+      if (start !== null) return hour === start;
+      if (end !== null) return hour === 0; // Show at start if only end time
+      return false;
+    });
+  };
 
-    const containerRect = container.getBoundingClientRect();
-    const cellRect = headerCell.getBoundingClientRect();
-    if (!containerRect.width || !cellRect.width) return;
-
-    const currentScroll = container.scrollLeft;
-    const offsetLeft = cellRect.left - containerRect.left;
-    const targetScroll =
-      currentScroll + offsetLeft + cellRect.width / 2 - containerRect.width / 2;
-    container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
-  }, [todayStr, weekDates]);
-
-  useEffect(() => {
-    let frame1;
-    let frame2;
-    const runCentering = () => {
-      frame1 = requestAnimationFrame(() => {
-        frame2 = requestAnimationFrame(() => centerTodayInMobile());
-      });
-    };
-
-    runCentering();
-    const delayed = setTimeout(centerTodayInMobile, 200);
-    const handleResize = () => centerTodayInMobile();
-    window.addEventListener('resize', handleResize);
-
-    const container = weekGridRef.current;
-    let resizeObserver;
-    if (container && 'ResizeObserver' in window) {
-      resizeObserver = new ResizeObserver(() => centerTodayInMobile());
-      resizeObserver.observe(container);
+  const getTaskSpan = (task) => {
+    const taskObj = typeof task === 'string' ? { text: task } : task;
+    if (!taskObj.startTime && !taskObj.endTime) return 1;
+    const start = parseTime(taskObj.startTime);
+    const end = parseTime(taskObj.endTime);
+    if (start !== null && end !== null) {
+      return Math.max(1, end - start);
     }
+    return 1;
+  };
 
-    if (document.fonts?.ready) {
-      document.fonts.ready.then(() => centerTodayInMobile());
+  const parseTime = (timeStr) => {
+    if (!timeStr) return null;
+    const parts = timeStr.split(':');
+    if (parts.length !== 2) return null;
+    const hour = parseInt(parts[0], 10);
+    if (isNaN(hour) || hour < 0 || hour > 23) return null;
+    return hour;
+  };
+
+  const formatTime = (timeStr) => {
+    if (!timeStr) return '';
+    const parts = timeStr.split(':');
+    if (parts.length === 2) {
+      return `${parts[0]}:${parts[1]}`;
     }
+    return timeStr;
+  };
 
-    return () => {
-      cancelAnimationFrame(frame1);
-      cancelAnimationFrame(frame2);
-      clearTimeout(delayed);
-      window.removeEventListener('resize', handleResize);
-      if (resizeObserver) resizeObserver.disconnect();
-    };
-  }, [centerTodayInMobile]);
 
   return (
     <div className="container">
@@ -191,72 +308,156 @@ export default function WeekPage() {
           <div className="week-row week-row-header">
             <div className="week-cell week-cell-time"></div>
             {weekDates.map((date) => {
-              const label = formatDayHeader(date);
+              const dateStr = formatDateKey(date);
+              const isToday = dateStr === todayStr;
               return (
                 <div
-                  className="week-cell week-cell-header"
-                  data-date={formatDateKey(date)}
+                  className={`week-cell week-cell-header ${isToday ? 'today' : ''}`}
+                  data-date={dateStr}
                   key={date.toISOString()}
                 >
-                  {label}
+                  {formatDayHeader(date)}
                 </div>
               );
             })}
           </div>
 
-          {Array.from({ length: endHour - startHour + 1 }).map((_, index) => {
-            const hour = startHour + index;
-            const displayHour = hour === 24 ? 0 : hour;
-            const timeLabel = `${String(displayHour).padStart(2, '0')}:00`;
+          {hours.map((hour) => {
+            const timeLabel = hour === 24 ? '00:00' : `${String(hour).padStart(2, '0')}:00`;
             return (
-              <div className="week-row" key={hour}>
+              <div className="week-row" data-hour={hour} key={hour}>
                 <div className="week-cell week-cell-time">{timeLabel}</div>
                 {weekDates.map((date) => {
                   const dateStr = formatDateKey(date);
-                  const task = taskState?.[dateStr]?.[hour] || '';
+                  const tasksForHour = getTasksForHour(dateStr, hour);
+                  const allTasks = getTasksForDate(dateStr);
+                  const tasksWithoutTime = allTasks.filter(task => {
+                    const taskObj = typeof task === 'string' ? { text: task } : task;
+                    return !taskObj.startTime && !taskObj.endTime;
+                  });
+
                   return (
-                    <button
-                      key={`${dateStr}-${hour}`}
-                      className={`week-cell week-slot ${task ? 'has-task' : ''}`}
-                      onClick={() => openSlot(dateStr, hour)}
-                    >
-                      {task}
-                    </button>
+                    <div key={`${dateStr}-${hour}`} className="week-cell week-slot-container">
+                      {hour === startHour && (
+                        <>
+                          {tasksWithoutTime.map((task, index) => {
+                            const taskObj = typeof task === 'string' ? { text: task } : task;
+                            return (
+                              <button
+                                key={`no-time-${index}`}
+                                className="week-task-item week-task-no-time"
+                                onClick={() => {
+                                  const taskIndex = allTasks.findIndex(t => t === task);
+                                  openTaskModal(dateStr, taskIndex, taskObj);
+                                }}
+                              >
+                                {taskObj.text}
+                              </button>
+                            );
+                          })}
+                          <button
+                            className="week-task-add"
+                            onClick={() => openTaskModal(dateStr, null, null)}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <line x1="12" y1="5" x2="12" y2="19"></line>
+                              <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                          </button>
+                        </>
+                      )}
+                      {tasksForHour.map((task, index) => {
+                        const taskObj = typeof task === 'string' ? { text: task } : task;
+                        const taskIndex = allTasks.findIndex(t => t === task);
+                        const start = parseTime(taskObj.startTime);
+                        const end = parseTime(taskObj.endTime);
+                        const span = start !== null && end !== null ? Math.max(1, end - start) : 1;
+                        return (
+                          <button
+                            key={`${hour}-${index}`}
+                            className="week-task-item week-task-timed"
+                            onClick={() => openTaskModal(dateStr, taskIndex, taskObj)}
+                            style={{
+                              position: 'absolute',
+                              top: '4px',
+                              left: '0px',
+                              right: '4px',
+                              height: `calc(${span} * 48px - 8px)`,
+                              minHeight: '40px',
+                              zIndex: 2
+                            }}
+                          >
+                            <div className="week-task-text">{taskObj.text}</div>
+                            {(taskObj.startTime || taskObj.endTime) && (
+                              <div className="week-task-time">
+                                {taskObj.startTime && formatTime(taskObj.startTime)}
+                                {taskObj.startTime && taskObj.endTime && ' - '}
+                                {taskObj.endTime && formatTime(taskObj.endTime)}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   );
                 })}
               </div>
             );
           })}
+
+          {nowLineStyle && (
+            <div className="now-line" style={nowLineStyle}>
+              <span className="now-line-dot"></span>
+            </div>
+          )}
         </div>
       </div>
 
-      {activeSlot && (
-        <div className="modal active" onClick={(e) => e.target.classList.contains('modal') && closeSlot()}>
+      {activeTask && (
+        <div className="modal active" onClick={(e) => e.target.classList.contains('modal') && closeTaskModal()}>
           <div className="modal-content">
             <div className="modal-header">
-              <h2>
-                {formatDateTitle(activeSlot.dateStr)} • {String(activeSlot.hour === 24 ? 0 : activeSlot.hour).padStart(2, '0')}
-                :00
-              </h2>
-              <button className="modal-close" onClick={closeSlot}>
+              <h2>{formatDateTitle(activeTask.dateStr)}</h2>
+              <button className="modal-close" onClick={closeTaskModal}>
                 &times;
               </button>
             </div>
-            <form onSubmit={saveSlot}>
+            <form onSubmit={saveTask}>
               <div className="form-group">
-                <label htmlFor="weekTaskText">Aufgabe für diese Stunde</label>
+                <label htmlFor="weekTaskText">Aufgabe</label>
                 <input
                   id="weekTaskText"
                   type="text"
                   placeholder="z.B. Bericht schreiben"
                   value={taskInput}
                   onChange={(e) => setTaskInput(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="startTime">Startzeit (optional)</label>
+                <input
+                  id="startTime"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="endTime">Endzeit (optional)</label>
+                <input
+                  id="endTime"
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
                 />
               </div>
               <div className="form-actions">
-                <button type="button" className="btn btn-secondary" onClick={deleteSlot}>
-                  Löschen
-                </button>
+                {activeTask.taskIndex !== null && (
+                  <button type="button" className="btn btn-secondary" onClick={deleteTask}>
+                    Löschen
+                  </button>
+                )}
                 <button type="submit" className="btn btn-primary">
                   Speichern
                 </button>
@@ -335,7 +536,36 @@ function formatDateTitle(dateStr) {
 function loadWeekTasks() {
   try {
     const stored = localStorage.getItem('weekPlannerTasks');
-    return stored ? JSON.parse(stored) : {};
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    // Migrate old formats to new format
+    const migrated = {};
+    for (const [date, tasks] of Object.entries(parsed)) {
+      if (Array.isArray(tasks)) {
+        // Migrate string tasks to objects
+        migrated[date] = tasks.map(task => {
+          if (typeof task === 'string') {
+            return { text: task, startTime: null, endTime: null };
+          }
+          return task;
+        });
+      } else if (typeof tasks === 'object') {
+        // Old format: {hour: task}
+        migrated[date] = Object.entries(tasks)
+          .map(([hour, task]) => {
+            if (typeof task === 'string' && task.trim()) {
+              return {
+                text: task,
+                startTime: `${String(parseInt(hour, 10)).padStart(2, '0')}:00`,
+                endTime: `${String(parseInt(hour, 10) + 1).padStart(2, '0')}:00`
+              };
+            }
+            return null;
+          })
+          .filter(t => t !== null);
+      }
+    }
+    return migrated;
   } catch (error) {
     console.error('Error loading week planner tasks:', error);
     return {};

@@ -169,6 +169,8 @@ export default function TodoPage() {
             return { ...parsedTodo, ...metadata };
           });
 
+          // localStorage immer synchronisieren, damit es aktuell bleibt
+          localStorage.setItem('todos', JSON.stringify(mappedTodos));
           setTodos(mappedTodos);
           checkAutoCompletion(mappedTodos);
         } else {
@@ -192,6 +194,8 @@ export default function TodoPage() {
 
   async function saveTodo(todo) {
     try {
+      let savedTodo = todo;
+      
       if (supabaseClientRef.current) {
         const todoData = {
           text: todo.text,
@@ -217,33 +221,39 @@ export default function TodoPage() {
 
           if (error) throw error;
           saveTodoMetadata(todo.id, metadata);
-          return { ...data, ...metadata };
+          savedTodo = { ...data, ...metadata };
+        } else {
+          const { data, error } = await supabaseClientRef.current
+            .from('todos')
+            .insert([todoData])
+            .select()
+            .single();
+
+          if (error) throw error;
+          saveTodoMetadata(data.id, metadata);
+          savedTodo = { ...data, ...metadata };
         }
-
-        const { data, error } = await supabaseClientRef.current
-          .from('todos')
-          .insert([todoData])
-          .select()
-          .single();
-
-        if (error) throw error;
-        saveTodoMetadata(data.id, metadata);
-        return { ...data, ...metadata };
       }
 
+      // Immer localStorage synchronisieren (auch wenn Supabase verfügbar ist)
       const localTodos = [...todosRef.current];
-      if (todo.id) {
-        const index = localTodos.findIndex((t) => t.id === todo.id);
-        if (index !== -1) localTodos[index] = { ...localTodos[index], ...todo };
+      if (savedTodo.id) {
+        const index = localTodos.findIndex((t) => t.id === savedTodo.id);
+        if (index !== -1) {
+          localTodos[index] = { ...localTodos[index], ...savedTodo };
+        } else {
+          localTodos.push(savedTodo);
+        }
       } else {
-        todo.id = Date.now().toString();
-        localTodos.push(todo);
+        savedTodo.id = Date.now().toString();
+        localTodos.push(savedTodo);
       }
       localStorage.setItem('todos', JSON.stringify(localTodos));
       setTodos(localTodos);
-      return todo;
+      return savedTodo;
     } catch (error) {
       console.error('Error saving todo:', error);
+      // Bei Fehler trotzdem in localStorage speichern
       const localTodos = [...todosRef.current];
       if (todo.id) {
         const index = localTodos.findIndex((t) => t.id === todo.id);
@@ -268,10 +278,13 @@ export default function TodoPage() {
 
       localStorage.removeItem(`todo_metadata_${id}`);
       const next = todosRef.current.filter((t) => t.id !== id);
+      // localStorage immer synchronisieren
       localStorage.setItem('todos', JSON.stringify(next));
       setTodos(next);
     } catch (error) {
       console.error('Error deleting todo:', error);
+      // Bei Fehler trotzdem in localStorage löschen
+      localStorage.removeItem(`todo_metadata_${id}`);
       const next = todosRef.current.filter((t) => t.id !== id);
       localStorage.setItem('todos', JSON.stringify(next));
       setTodos(next);
